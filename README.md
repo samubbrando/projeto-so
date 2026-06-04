@@ -34,3 +34,19 @@ Diversas possibilidades foram encontradas, trabalhar com wrapper para traffic co
 Utilizando da documentação disponibilizada no site principal relativo ao sistema do eBPF, [ebpf.io](https://ebpf.io/), foi selecionado o repositório: [eunomia-bpf/bpf-developer-tutorial](https://github.com/eunomia-bpf/bpf-developer-tutorial/) para aprendizado das etapas.
 
 Além disso, entender o que o sistema almejava alcançar por meio do [documentário](https://www.youtube.com/watch?v=Wb_vD3XZYOA) do desenvolvimento do sistema do eBPF, além de estudos para entendimento mais aprofundado do fluxo de rede no kernel, esse foi um dos principais [vídeos](https://www.youtube.com/watch?v=ck4WvYM9V4c) do tópico.
+
+##### Planejamento:
+- [x] 1-helloworld
+- [x] 2-kprobe-unlink
+- [x] 3-fentry-unlink
+- [x] 4-opensnoop
+- [x] 6-sigsnoop
+- [x] 7-execsnoop
+- [x] 8-exitsnoop
+
+---
+
+- [ ] 13-tcpconnlat
+- [ ] 14-tcpstates
+- [ ] 20-tc
+- [ ] 21-xdp
