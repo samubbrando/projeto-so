@@ -46,7 +46,7 @@ Além disso, entender o que o sistema almejava alcançar por meio do [documentá
 
 ---
 
-- [ ] 13-tcpconnlat
+- [x] 13-tcpconnlat
 - [ ] 14-tcpstates
 - [ ] 20-tc
 - [ ] 21-xdp
