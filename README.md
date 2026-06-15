@@ -37,16 +37,16 @@ Além disso, entender o que o sistema almejava alcançar por meio do [documentá
 
 ##### Planejamento:
 - [x] 1-helloworld
-- [x] 2-kprobe-unlink
-- [x] 3-fentry-unlink
-- [x] 4-opensnoop
-- [x] 6-sigsnoop
-- [x] 7-execsnoop
-- [x] 8-exitsnoop
+- [x] 2-kprobe-unlink (kprobe)
+- [x] 3-fentry-unlink (fentry, fexit)
+- [x] 4-opensnoop     (variables)     
+- [x] 6-sigsnoop      (maps -> conexão user e kernel)
+- [x] 7-execsnoop     (perf event array)
+- [x] 8-exitsnoop     (ring buffer)
 
 ---
 
-- [x] 13-tcpconnlat
-- [ ] 14-tcpstates
-- [ ] 20-tc
+- [x] 13-tcpconnlat (tcp_state -> como avaliar conexão sendo feita)
+- [x] 14-tcpstates  (tcp_state -> como avaliar etapa de conexão)
+- [x] 20-tc
 - [ ] 21-xdp
