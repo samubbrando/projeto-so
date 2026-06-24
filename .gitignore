@@ -1,3 +1,6 @@
 *.o
 *.skel.json
 package.json
+*.skel.h
+vmlinux.h
+rtt
