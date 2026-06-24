@@ -32,7 +32,10 @@ struct {
 static struct hist zero;
 
 SEC("fentry/tcp_rcv_established")
-int BPF_PROG(tcp_rcv, struct sock *sk) {
+int BPF_PROG(
+    tcp_rcv, // Nome do programa 
+    struct sock *sk
+) {
     struct conn_key key = {};
     struct hist *histp; // Eu recebo um ponteiro do ebpf
     struct tcp_sock *tp = (struct tcp_sock *) sk;
