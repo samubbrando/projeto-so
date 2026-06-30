@@ -4,3 +4,4 @@ package.json
 *.skel.h
 vmlinux.h
 rtt
+*.out
