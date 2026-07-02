@@ -1,3 +1,6 @@
+#ifndef NETLINK_FUNCS_H
+#define NETLINK_FUNCS_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,26 +161,4 @@ int discover_sockets(socket_proccess_t *sockets_captured) {
     return total_sockets_found;
 }
 
-int main() {
-    socket_proccess_t *sockets_captured = malloc(sizeof(socket_proccess_t) * MAX_SOCKETS);
-    if (sockets_captured == NULL) {
-        perror("Erro ao alocar memória para os sockets");
-        return 1;
-    }    
-    int total_sockets_found = discover_sockets(sockets_captured);
-
-    for (int i = 0; i < total_sockets_found; i++) {
-        socket_proccess_t socket_item = sockets_captured[i];
-        
-        if (socket_item.pid[0] != '\0') {
-            printf("=================================\n");
-            printf("(SRC)\n  IP: %s\n  Port: %d", socket_item.src_ip, socket_item.src_port);
-            printf("\n(DESTINATION)\n  IP: %s\n  PORT: %d\n", socket_item.end_ip, socket_item.end_port);
-            printf("\nINODE: %d\n", socket_item.socket_inode);
-            printf("\n(PROCESS):\n  PID: %s\n  NAME: %s\n", socket_item.pid, socket_item.name);
-        }
-    }
-
-    free(sockets_captured);
-    return 0;
-}
+#endif

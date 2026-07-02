@@ -1,4 +1,5 @@
 #include "vmlinux.h"
+#include "hist.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
@@ -7,20 +8,6 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define MAX_ENTRIES 4096
-
-struct conn_key {
-    u16 src_port;
-    u32 src_ip;
-    u16 dst_port;
-    u32 dst_ip;
-};
-
-struct hist {
-    u32 rtt;
-    
-    u64 sent;
-    u64 received;
-};
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
