@@ -27,7 +27,18 @@ typedef struct socket_proccess {
     int src_port;
     char end_ip[INET_ADDRSTRLEN];
     int end_port;
+    unsigned long long tx_bytes;
+    unsigned long long rx_bytes;
+    unsigned int rtt;
 } socket_proccess_t;
+
+typedef struct proc_agg {
+    char pid[16];
+    char name[MAX_NAME_SIZE];
+    unsigned long long tx_bytes;
+    unsigned long long rx_bytes;
+    int socket_count;
+} proc_agg_t;
 
 void find_pids_for_inode(ino_t target_inode, socket_proccess_t *sockets_list, int current_index) {
     DIR *proc_dir = opendir("/proc");
