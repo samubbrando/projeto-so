@@ -93,13 +93,40 @@ void find_pids_for_inode(ino_t target_inode, socket_proccess_t *sockets_list, in
     closedir(proc_dir);
 }
 
+char* detect_default_iface(void) {
+    FILE *fp = fopen("/proc/net/route", "r");
+    if (!fp) {
+        perror("Failure opening /proc/net/route");
+        return NULL;
+    }
+
+    char line[256];
+    char iface[32];
+
+    while (fgets(line, sizeof(line), fp)) {
+        unsigned long dest, mask;
+        if (sscanf(line, "%31s %lx %*s %*s %*s %*s %*s %lx", iface, &dest, &mask) == 3) {
+            if (dest == 0 && mask == 0) {
+                fclose(fp);
+                char *result = (char *) malloc(strlen(iface) + 1);
+                if (result) {
+                    strcpy(result, iface);
+                }
+                return result;
+            }
+        }
+    }
+
+    fclose(fp);
+    return NULL;
+}
+
 int discover_sockets(socket_proccess_t *sockets_captured) {
     int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_SOCK_DIAG);
     int total_sockets_found = 0;
 
     if (sock < 0) {
         perror("Falhou ao criar o socket");
-        free(sockets_captured);
         return 1;
     }
 
@@ -111,7 +138,6 @@ int discover_sockets(socket_proccess_t *sockets_captured) {
     if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("Erro no bind");
         close(sock);
-        free(sockets_captured);
         return 1;
     }
 
