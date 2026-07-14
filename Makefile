@@ -18,9 +18,17 @@ TC_SKEL   := $(SRC)/bpf/tc.skel.h
 USER_C    := $(SRC)/main.c
 TARGET    := rtt
 
-.PHONY: all clean
+VMLINUX_H := $(SRC)/bpf/vmlinux.h
+
+.PHONY: all clean vmlinux
 
 all: $(TARGET)
+
+vmlinux:
+	sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c > $(VMLINUX_H)
+
+$(VMLINUX_H):
+	sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@
 
 $(RTT_BPF_O): $(RTT_BPF_C) $(SRC)/common/hist.h $(SRC)/bpf/vmlinux.h
 	$(CC) $(CFLAGS) -c $< -o $@ \
@@ -47,4 +55,4 @@ $(TARGET): $(USER_C) $(RTT_SKEL) $(XDP_SKEL) $(TC_SKEL)
 	$(USER_CC) $(USER_CFLAGS) -o $@ $< $(USER_LDLIBS)
 
 clean:
-	rm -f $(RTT_BPF_O) $(RTT_SKEL) $(XDP_BPF_O) $(XDP_SKEL) $(TC_BPF_O) $(TC_SKEL) $(TARGET)
+	rm -f $(RTT_BPF_O) $(RTT_SKEL) $(XDP_BPF_O) $(XDP_SKEL) $(TC_BPF_O) $(TC_SKEL) $(VMLINUX_H) $(TARGET)
