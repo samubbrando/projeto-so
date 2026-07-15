@@ -6,15 +6,20 @@
 #include <string.h>
 #include "monitor.h"
 
-#ifndef DEFAULT_STRATEGY
-#define DEFAULT_STRATEGY STRATEGY_DROP
+#ifndef DEFAULT_EGRESS_STRATEGY
+#define DEFAULT_EGRESS_STRATEGY STRATEGY_DROP
+#endif
+
+#ifndef DEFAULT_INGRESS_STRATEGY
+#define DEFAULT_INGRESS_STRATEGY STRATEGY_DROP
 #endif
 
 struct rule {
     char *comm;
     int bandwidth_pct;
     enum action action;
-    enum strategy strategy;
+    enum strategy egress_strategy;
+    enum strategy ingress_strategy;
 };
 
 static char *skip_ws(char *p)
@@ -33,17 +38,35 @@ static char *read_token(char *p, char **out_start, size_t *out_len)
 
 static enum action parse_action(char *start, size_t len)
 {
-    if (len == 5 && memcmp(start, "allow", 5) == 0) return ACTION_ALLOW;
-    if (len == 5 && memcmp(start, "block", 5) == 0) return ACTION_BLOCK;
-    if (len == 5 && memcmp(start, "limit", 5) == 0) return ACTION_LIMIT;
-    return -1;
+    if (len == 5 && memcmp(start, "allow", 5) == 0) return ALLOW;
+    if (len == 5 && memcmp(start, "block", 5) == 0) return BLOCK;
+    return BLOCK;
 }
 
 static enum strategy parse_strategy(char *start, size_t len)
 {
     if (len == 4 && memcmp(start, "drop", 4) == 0) return STRATEGY_DROP;
     if (len == 3 && memcmp(start, "edt", 3) == 0) return STRATEGY_EDT;
+    if (len == 3 && memcmp(start, "ecn", 3) == 0) return STRATEGY_ECN;
     return -1;
+}
+
+static int read_optional_strategy(char **pp, enum strategy *out)
+{
+    char *p = skip_ws(*pp);
+    if (*p == '\0' || *p == '\n' || *p == '#')
+        return 0;
+
+    char *strat_start;
+    size_t strat_len;
+    p = read_token(p, &strat_start, &strat_len);
+    enum strategy strat = parse_strategy(strat_start, strat_len);
+    if ((int)strat < 0)
+        return 0;
+
+    *out = strat;
+    *pp = p;
+    return 1;
 }
 
 static int parse_one_rule(char *line, struct rule *out)
@@ -72,28 +95,21 @@ static int parse_one_rule(char *line, struct rule *out)
     p = read_token(p, &action_start, &action_len);
 
     enum action action = parse_action(action_start, action_len);
-    if ((int)action < 0) return -1;
 
-    enum strategy strategy = DEFAULT_STRATEGY;
+    enum strategy egr = DEFAULT_EGRESS_STRATEGY;
+    enum strategy ingr = DEFAULT_INGRESS_STRATEGY;
 
-    p = skip_ws(p);
-    if (*p != '\0' && *p != '\n' && *p != '#')
-    {
-        char *strat_start;
-        size_t strat_len;
-        p = read_token(p, &strat_start, &strat_len);
-        enum strategy strat = parse_strategy(strat_start, strat_len);
-        if ((int)strat >= 0)
-            strategy = strat;
-    }
+    read_optional_strategy(&p, &egr);
+    read_optional_strategy(&p, &ingr);
 
-    out->comm = malloc(comm_len + 1);
+    out->comm = (char *)malloc(comm_len + 1);
     if (!out->comm) return -1;
     memcpy(out->comm, comm_start, comm_len);
     out->comm[comm_len] = '\0';
     out->bandwidth_pct = (int)pct;
     out->action = action;
-    out->strategy = strategy;
+    out->egress_strategy = egr;
+    out->ingress_strategy = ingr;
     return 0;
 }
 

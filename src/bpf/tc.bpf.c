@@ -50,8 +50,34 @@ int tc_egress(struct __sk_buff *skb) {
     if ((void *)(iph + 1) > data_end) return TC_ACT_OK;
     if (iph->protocol != IPPROTO_TCP) return TC_ACT_OK;
     struct tcphdr *tcph = data + sizeof(struct ethhdr) + (iph->ihl * 4);
-    
+
     if ((void *)(tcph + 1) > data_end) return TC_ACT_OK;
+
+    struct flow_key key = {
+        .src_ip = iph->saddr,
+        .dst_ip = iph->daddr,
+        .src_port = bpf_ntohs(tcph->source),
+        .dst_port = bpf_ntohs(tcph->dest),
+        .protocol = iph->protocol
+    };
+
+    struct flow_info *info = bpf_map_lookup_elem(&flow_info_map, &key);
+    if (!info) return TC_ACT_OK;
+
+    if (info->action == BLOCK) 
+        return TC_ACT_SHOT;
+
+    struct rate_bucket *bucket = bpf_map_lookup_elem(&egress_buckets, &key);
+    if (!bucket) return TC_ACT_OK;
+
+    refill_bucket(bucket);
+    if (bucket->tokens >= skb->len) {
+        __sync_fetch_and_sub(&bucket->tokens, skb->len);
+        return TC_ACT_OK;
+    } 
+
+    if (info->egress_strategy == STRATEGY_DROP)
+        return TC_ACT_SHOT;
 
     return TC_ACT_OK;
 }

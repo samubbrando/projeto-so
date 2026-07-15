@@ -13,14 +13,6 @@ struct egress_stats
     unsigned long long packets;
 };
 
-struct flow_key
-{
-    unsigned int src_ip;
-    unsigned int dst_ip;
-    unsigned short src_port;
-    unsigned short dst_port;
-    unsigned char protocol;
-};
 
 struct rate_bucket
 {
@@ -34,27 +26,38 @@ enum strategy
 {
     STRATEGY_DROP,
     STRATEGY_EDT,
+    STRATEGY_ECN,
 };
 
 enum action
 {
-    ACTION_ALLOW,
-    ACTION_BLOCK,
-    ACTION_LIMIT,
+    ALLOW,
+    BLOCK,
+};
+
+struct flow_key
+{
+    unsigned int src_ip;
+    unsigned int dst_ip;
+    unsigned short src_port;
+    unsigned short dst_port;
+    unsigned char protocol;
 };
 
 struct flow_info
 {
     unsigned char action;
-    unsigned char strategy;
+    unsigned char egress_strategy;
+    unsigned char ingress_strategy;
     unsigned int rate_bps;
 };
 
 struct block_entry
 {
     unsigned char action;
-    unsigned char strategy;
+    unsigned char ingress_strategy;
     unsigned int rate_bps;
 };
+
 
 #endif
