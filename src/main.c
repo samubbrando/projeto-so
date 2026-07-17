@@ -9,6 +9,16 @@
 #include "rtt.h"
 #include "xdp.h"
 #include "tc.h"
+#include "speed_estimator.h"
+
+static struct tc_bpf *g_tc_skel;
+
+static unsigned long long read_egress_bytes(void) {
+    if (!g_tc_skel) return 0;
+    struct egress_stats s = {0};
+    read_tc_egress(g_tc_skel, &s);
+    return s.bytes;
+}
 
 struct proc_prev
 {
@@ -250,6 +260,10 @@ int main()
         return 1;
     }
 
+    g_tc_skel = tc_skel;
+    struct speed_estimator est;
+    speed_estimator_init(&est, iface);
+
     struct bpf_map *hists_map = rtt_skel->maps.hists;
     struct proc_prev *proc_prev = calloc(MAX_PROCCESSES, sizeof(struct proc_prev));
     struct ingress_stats ingress = {0};
@@ -275,6 +289,7 @@ int main()
         sum_per_process(agg, n_agg, &sum_tx, &sum_rx);
 
         uint64_t now = now_ns();
+        speed_estimator_update(&est, read_egress_bytes, now);
         print_per_process(agg, n_agg, proc_prev, &n_proc_prev, now);
 
         free(agg);
@@ -284,9 +299,15 @@ int main()
                                &ingress, &egress, &g_prev,
                                now, sum_tx, sum_rx);
 
+        unsigned long long cap = speed_estimator_capacity(&est);
+        printf("=== Capacidade estimada ===\n");
+        printf("Capacity: %llu bps  (peak=%llu  test=%llu  sysfs=%llu)\n",
+               cap, est.peak_observed_bps, est.active_test_bps, est.sysfs_speed_bps);
+
         sleep(1);
     }
 
+    speed_estimator_destroy(&est);
     free(proc_prev);
     free(iface);
     cleanup_bpf_modules(xdp_skel, tc_skel, rtt_skel);

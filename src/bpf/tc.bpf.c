@@ -2,6 +2,7 @@
 #include "common/monitor.h"
 #include "bpf_common.h"
 #include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
 
 #define TC_ACT_OK 0
 #define ETH_P_IP 0x0800
@@ -33,8 +34,8 @@ struct {
 } egress_buckets SEC(".maps");
 SEC("tc/egress")
 int tc_egress(struct __sk_buff *skb) {
-    __u32 key = 0;
-    struct egress_stats *stats = bpf_map_lookup_elem(&egress_map, &key);
+    __u32 zero = 0;
+    struct egress_stats *stats = bpf_map_lookup_elem(&egress_map, &zero);
     if (!stats) return TC_ACT_OK;
 
     __sync_fetch_and_add(&stats->bytes,   skb->len);
