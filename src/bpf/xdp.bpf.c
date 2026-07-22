@@ -9,21 +9,24 @@
 
 char LICENCE[] SEC("license") = "Dual BSD/GPL";
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, __u32);
     __type(value, struct ingress_stats);
 } ingress_map SEC(".maps");
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __type(key, __u32);
     __type(value, struct block_entry);
 } blocklist_map SEC(".maps");
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __type(key, __u32);
@@ -74,20 +77,22 @@ int xdp_ingress(struct xdp_md *ctx)
         return XDP_PASS;
     }
 
-    if (entry->ingress_strategy == STRATEGY_DROP) 
+    if (entry->ingress_strategy == STRATEGY_DROP)
         return XDP_DROP;
-    
-    if (entry->ingress_strategy == STRATEGY_ECN) {
+
+    if (entry->ingress_strategy == STRATEGY_ECN)
+    {
         __u8 old_tos = iph->tos;
         __u8 ecn = old_tos & 0x03;
 
-        if (!ecn || ecn == 3) return XDP_DROP;
-        
+        if (!ecn || ecn == 3)
+            return XDP_DROP;
+
         __u8 new_tos = old_tos & 0xFC | 0x03;
         __u32 csum = bpf_csum_diff(
-            &old_tos, sizeof(old_tos), &new_tos, sizeof(new_tos), 
+            &old_tos, sizeof(old_tos), &new_tos, sizeof(new_tos),
             (~bpf_ntohs(iph->check)) & 0xFFFF);
-        
+
         csum = (csum & 0xFFFF) + (csum >> 16);
         csum = (csum & 0xFFFF) + (csum >> 16);
 
@@ -95,7 +100,6 @@ int xdp_ingress(struct xdp_md *ctx)
 
         iph->tos = new_tos;
     }
-
 
     return XDP_DROP;
 }

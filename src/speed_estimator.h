@@ -18,11 +18,9 @@
 
 struct speed_estimator {
     unsigned long long current_speed_bps;
-    unsigned long long peak_observed_bps;
     unsigned long long active_test_bps;
     unsigned long long sysfs_speed_bps;
 
-    unsigned long long prev_egress_bytes;
     uint64_t prev_time_ns;
 
     int test_sock;
@@ -64,23 +62,12 @@ void speed_estimator_init(struct speed_estimator *est, const char *iface) {
 void speed_estimator_update(struct speed_estimator *est,
                             unsigned long long (*read_egress)(void),
                             uint64_t now_ns) {
-    unsigned long long egress_bytes = read_egress();
-
     if (est->prev_time_ns == 0) {
-        est->prev_egress_bytes = egress_bytes;
         est->prev_time_ns = now_ns;
         return;
     }
 
-    unsigned long long delta_bytes = egress_bytes - est->prev_egress_bytes;
-    unsigned long long delta_ns = now_ns - est->prev_time_ns;
-
-    if (delta_ns > 0) { 
-        unsigned long long real_bps = delta_bytes * 8000000000ULL / delta_ns;
-        est->peak_observed_bps = real_bps;
-    }
-
-    if (now_ns - est->last_test_ns >= (uint64_t)est->interval_s * 1000000000ULL) { // Se o intervalo já fizer interval_s segundos
+    if (now_ns - est->last_test_ns >= (uint64_t)est->interval_s * 1000000000ULL) {
         if (est->test_sock >= 0) {
             unsigned long long before = read_egress();
 
@@ -111,15 +98,20 @@ void speed_estimator_update(struct speed_estimator *est,
         est->last_test_ns = now_ns;
     }
 
-    est->current_speed_bps = est->peak_observed_bps;
-    if (est->active_test_bps > est->current_speed_bps)
+    if (est->active_test_bps > 0)
         est->current_speed_bps = est->active_test_bps;
-
-    if (est->sysfs_speed_bps > est->current_speed_bps)
+    else if (est->sysfs_speed_bps > 0)
         est->current_speed_bps = est->sysfs_speed_bps;
-
-    est->prev_egress_bytes = egress_bytes;
+    else
+        est->current_speed_bps = 1000000000ULL;
+        
     est->prev_time_ns = now_ns;
+}
+
+static inline unsigned long long speed_estimator_get_rate_bps(
+    struct speed_estimator *est, int bandwidth_pct)
+{
+    return est->current_speed_bps * bandwidth_pct / 100;
 }
 
 unsigned long long speed_estimator_capacity(struct speed_estimator *est) {

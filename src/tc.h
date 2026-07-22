@@ -75,7 +75,7 @@ static int read_tc_egress(struct tc_bpf *skel, struct egress_stats *stats)
     for (int i = 0; i < ncpus; i++)
     {
         stats->packets += percpu_stats[i].packets;
-        stats->bytes   += percpu_stats[i].bytes;
+        stats->bytes += percpu_stats[i].bytes;
     }
 
     return 0;

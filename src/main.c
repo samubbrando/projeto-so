@@ -3,18 +3,25 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include "common/hist.h"
+#include "common/config.h"
 #include "net-funcs.h"
 #include "rtt.h"
 #include "xdp.h"
 #include "tc.h"
 #include "speed_estimator.h"
+#include "orchestrator.h"
+
+#define MAX_RULES 256
 
 static struct tc_bpf *g_tc_skel;
 
-static unsigned long long read_egress_bytes(void) {
-    if (!g_tc_skel) return 0;
+static unsigned long long read_egress_bytes(void)
+{
+    if (!g_tc_skel)
+        return 0;
     struct egress_stats s = {0};
     read_tc_egress(g_tc_skel, &s);
     return s.bytes;
@@ -45,38 +52,57 @@ static uint64_t now_ns(void)
 }
 
 static int init_bpf_modules(struct xdp_bpf **xdp, struct tc_bpf **tc,
-                             struct rtt_bpf **rtt, char *iface)
+                            struct rtt_bpf **rtt, char *iface)
 {
     *xdp = init_xdp();
-    if (!*xdp) return 1;
-    if (attach_xdp(*xdp, iface)) { cleanup_xdp(*xdp); return 1; }
+    if (!*xdp)
+        return 1;
+    if (attach_xdp(*xdp, iface))
+    {
+        cleanup_xdp(*xdp);
+        return 1;
+    }
 
     *tc = init_tc();
-    if (!*tc) return 1;
-    if (attach_tc_egress(*tc, iface)) { cleanup_tc(*tc); return 1; }
+    if (!*tc)
+        return 1;
+    if (attach_tc_egress(*tc, iface))
+    {
+        cleanup_tc(*tc);
+        return 1;
+    }
 
     *rtt = init_rtt();
-    if (!*rtt) return 1;
-    if (attach_rtt(*rtt)) { cleanup_rtt(*rtt); return 1; }
+    if (!*rtt)
+        return 1;
+    if (attach_rtt(*rtt))
+    {
+        cleanup_rtt(*rtt);
+        return 1;
+    }
 
     return 0;
 }
 
 static void cleanup_bpf_modules(struct xdp_bpf *xdp, struct tc_bpf *tc,
-                                 struct rtt_bpf *rtt)
+                                struct rtt_bpf *rtt)
 {
-    if (rtt) cleanup_rtt(rtt);
-    if (tc)  cleanup_tc(tc);
-    if (xdp) cleanup_xdp(xdp);
+    if (rtt)
+        cleanup_rtt(rtt);
+    if (tc)
+        cleanup_tc(tc);
+    if (xdp)
+        cleanup_xdp(xdp);
 }
 
 static int read_socket_data(struct bpf_map *hists_map,
-                             socket_proccess_t *sockets, int n_sockets)
+                            socket_proccess_t *sockets, int n_sockets)
 {
     int count = 0;
     for (int i = 0; i < n_sockets; i++)
     {
-        if (sockets[i].pid[0] == '\0') continue;
+        if (sockets[i].pid[0] == '\0')
+            continue;
 
         struct conn_key ck;
         inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip);
@@ -98,12 +124,13 @@ static int read_socket_data(struct bpf_map *hists_map,
 }
 
 static int aggregate_by_pid(socket_proccess_t *sockets, int n_sockets,
-                             proc_agg_t *agg)
+                            proc_agg_t *agg)
 {
     int n_agg = 0;
     for (int i = 0; i < n_sockets; i++)
     {
-        if (sockets[i].pid[0] == '\0') continue;
+        if (sockets[i].pid[0] == '\0')
+            continue;
 
         proc_agg_t *p = NULL;
         for (int j = 0; j < n_agg; j++)
@@ -132,8 +159,8 @@ static int aggregate_by_pid(socket_proccess_t *sockets, int n_sockets,
 }
 
 static void sum_per_process(proc_agg_t *agg, int n_agg,
-                             unsigned long long *out_sum_tx,
-                             unsigned long long *out_sum_rx)
+                            unsigned long long *out_sum_tx,
+                            unsigned long long *out_sum_rx)
 {
     *out_sum_tx = 0;
     *out_sum_rx = 0;
@@ -145,8 +172,8 @@ static void sum_per_process(proc_agg_t *agg, int n_agg,
 }
 
 static void print_per_process(proc_agg_t *agg, int n_agg,
-                               struct proc_prev *prev, int *n_prev,
-                               uint64_t now)
+                              struct proc_prev *prev, int *n_prev,
+                              uint64_t now)
 {
     for (int i = 0; i < n_agg; i++)
     {
@@ -186,14 +213,14 @@ static void print_per_process(proc_agg_t *agg, int n_agg,
 }
 
 static void print_global_interface(const char *iface,
-                                    struct xdp_bpf *xdp,
-                                    struct tc_bpf *tc,
-                                    struct ingress_stats *ingress,
-                                    struct egress_stats *egress,
-                                    struct global_prev *g_prev,
-                                    uint64_t now,
-                                    unsigned long long sum_tx,
-                                    unsigned long long sum_rx)
+                                   struct xdp_bpf *xdp,
+                                   struct tc_bpf *tc,
+                                   struct ingress_stats *ingress,
+                                   struct egress_stats *egress,
+                                   struct global_prev *g_prev,
+                                   uint64_t now,
+                                   unsigned long long sum_tx,
+                                   unsigned long long sum_rx)
 {
     read_xdp_ingress(xdp, ingress);
     read_tc_egress(tc, egress);
@@ -206,9 +233,9 @@ static void print_global_interface(const char *iface,
         if (dt > 0)
         {
             unsigned long long rx_global_delta = ingress->bytes - g_prev->rx_bytes;
-            unsigned long long tx_global_delta = egress->bytes  - g_prev->tx_bytes;
-            unsigned long long rx_proc_delta   = sum_rx - g_prev->sum_rx;
-            unsigned long long tx_proc_delta   = sum_tx - g_prev->sum_tx;
+            unsigned long long tx_global_delta = egress->bytes - g_prev->tx_bytes;
+            unsigned long long rx_proc_delta = sum_rx - g_prev->sum_rx;
+            unsigned long long tx_proc_delta = sum_tx - g_prev->sum_tx;
 
             double rx_bps = (double)rx_global_delta * 1e9 / dt;
             double tx_bps = (double)tx_global_delta * 1e9 / dt;
@@ -241,13 +268,50 @@ static void print_global_interface(const char *iface,
     g_prev->sum_tx = sum_tx;
 }
 
-int main()
+static void print_usage(const char *prog)
 {
-    char *iface = detect_default_iface();
+    fprintf(stderr,
+            "Uso: %s [opcoes]\n\n"
+            "Opcoes:\n"
+            "  -c <path>   Arquivo de regras (default: rules.conf)\n"
+            "  -i <name>   Interface de rede (default: detectada)\n"
+            "  -h          Mostra esta ajuda\n",
+            prog);
+}
+
+int main(int argc, char *argv[])
+{
+    const char *config_path = "rules.conf";
+    char *iface = NULL;
+    int opt;
+
+    while ((opt = getopt(argc, argv, "c:i:h")) != -1)
+    {
+        switch (opt)
+        {
+        case 'c':
+            config_path = optarg;
+            break;
+        case 'i':
+            iface = optarg;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            return 0;
+        default:
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
     if (!iface)
     {
-        fprintf(stderr, "Failed to detect default network interface\n");
-        return 1;
+        iface = detect_default_iface();
+        if (!iface)
+        {
+            fprintf(stderr, "Failed to detect default network interface\n");
+            return 1;
+        }
     }
 
     struct xdp_bpf *xdp_skel;
@@ -256,11 +320,19 @@ int main()
 
     if (init_bpf_modules(&xdp_skel, &tc_skel, &rtt_skel, iface))
     {
-        free(iface);
+        if (iface)
+            free(iface);
         return 1;
     }
 
     g_tc_skel = tc_skel;
+
+    struct rule rules[MAX_RULES];
+    int n_rules = parse_rules(config_path, rules, MAX_RULES);
+    if (n_rules < 0)
+        n_rules = 0;
+    printf("Loaded %d rules from %s\n", n_rules, config_path);
+
     struct speed_estimator est;
     speed_estimator_init(&est, iface);
 
@@ -273,23 +345,33 @@ int main()
 
     while (1)
     {
-        printf("\n=== Por processo ===\n");
-
         socket_proccess_t *sockets = malloc(sizeof(socket_proccess_t) * MAX_SOCKETS);
-        if (!sockets) break;
+        if (!sockets)
+            break;
 
         proc_agg_t *agg = calloc(MAX_PROCCESSES, sizeof(proc_agg_t));
-        if (!agg) { free(sockets); break; }
+        if (!agg)
+        {
+            free(sockets);
+            break;
+        }
 
         int n_sockets = discover_sockets(sockets);
+
+        uint64_t now = now_ns();
+        speed_estimator_update(&est, read_egress_bytes, now);
+
+        orchestrator_apply(rules, n_rules, sockets, n_sockets,
+                           xdp_skel, tc_skel,
+                           speed_estimator_capacity(&est), now);
+
         read_socket_data(hists_map, sockets, n_sockets);
         int n_agg = aggregate_by_pid(sockets, n_sockets, agg);
 
         unsigned long long sum_tx, sum_rx;
         sum_per_process(agg, n_agg, &sum_tx, &sum_rx);
 
-        uint64_t now = now_ns();
-        speed_estimator_update(&est, read_egress_bytes, now);
+        printf("\n=== Por processo ===\n");
         print_per_process(agg, n_agg, proc_prev, &n_proc_prev, now);
 
         free(agg);
@@ -301,15 +383,18 @@ int main()
 
         unsigned long long cap = speed_estimator_capacity(&est);
         printf("=== Capacidade estimada ===\n");
-        printf("Capacity: %llu bps  (peak=%llu  test=%llu  sysfs=%llu)\n",
-               cap, est.peak_observed_bps, est.active_test_bps, est.sysfs_speed_bps);
+        printf("Capacity: %llu bps  (test=%llu  sysfs=%llu)\n",
+               cap, est.active_test_bps, est.sysfs_speed_bps);
 
         sleep(1);
     }
 
+    orchestrator_cleanup_maps(xdp_skel, tc_skel);
     speed_estimator_destroy(&est);
+    free_rules(rules, n_rules);
     free(proc_prev);
-    free(iface);
+    if (iface)
+        free(iface);
     cleanup_bpf_modules(xdp_skel, tc_skel, rtt_skel);
     return 0;
 }
