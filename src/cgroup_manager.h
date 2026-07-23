@@ -14,76 +14,35 @@
 #include "net-funcs.h"
 #include "bpf/cgroup_skb.skel.h"
 
-#define CGROUP_ROOT "/sys/fs/cgroup/so"
-#define MAX_CGROUPS 64
+#define CGROUP_ROOT "/sys/fs/cgroup"
 
-struct cgroup_entry {
-    char name[16];
-    __u64 cgid;
-    int cgid_set;
-};
-
-static struct cgroup_entry cg_entries[MAX_CGROUPS];
-static int n_cg_entries = 0;
-static char cgroup_root[256];
-
-static int init_cgroup_fs(void)
+static __u64 get_pid_cgroup_id(pid_t pid)
 {
-    snprintf(cgroup_root, sizeof(cgroup_root), "%s", CGROUP_ROOT);
+    char proc_path[64];
+    snprintf(proc_path, sizeof(proc_path), "/proc/%d/cgroup", pid);
 
-    struct stat st;
-    if (stat(cgroup_root, &st) == 0)
-    {
-        system("rmdir /sys/fs/cgroup/so/* 2>/dev/null");
-    }
-    else
-    {
-        if (mkdir(cgroup_root, 0755) && stat(cgroup_root, &st))
-        {
-            fprintf(stderr, "Failed to create %s (needs cgroupv2)\n", cgroup_root);
-            return -1;
-        }
-    }
-    return 0;
-}
+    FILE *f = fopen(proc_path, "r");
+    if (!f) return 0;
 
-static int create_rule_cgroup(const char *name)
-{
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s", cgroup_root, name);
-    if (mkdir(path, 0755) && errno != EEXIST)
-    {
-        fprintf(stderr, "Failed to create cgroup %s\n", path);
-        return -1;
-    }
-    return 0;
-}
-
-static __u64 get_cgroup_id(const char *name)
-{
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s", cgroup_root, name);
-    struct stat st;
-    if (stat(path, &st))
-    {
-        fprintf(stderr, "Cannot stat cgroup %s\n", path);
-        return 0;
-    }
-    return (__u64)st.st_ino;
-}
-
-static int move_pid_to_cgroup(pid_t pid, const char *name)
-{
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s/cgroup.procs", cgroup_root, name);
-    FILE *f = fopen(path, "w");
-    if (!f) {
-        fprintf(stderr, "Cannot open %s\n", path);
-        return -1;
-    }
-    fprintf(f, "%d", pid);
+    char line[512];
+    if (!fgets(line, sizeof(line), f)) { fclose(f); return 0; }
     fclose(f);
-    return 0;
+
+    char *p = strchr(line, ':');
+    if (!p) return 0;
+    p = strchr(p + 1, ':');
+    if (!p) return 0;
+    p++;
+
+    char *nl = strchr(p, '\n');
+    if (nl) *nl = '\0';
+
+    char cg_path[1024];
+    snprintf(cg_path, sizeof(cg_path), "%s%s", CGROUP_ROOT, p);
+
+    struct stat st;
+    if (stat(cg_path, &st)) return 0;
+    return (__u64)st.st_ino;
 }
 
 static struct cgroup_skb_bpf *init_cgroup_skb_bpf(void)
@@ -102,10 +61,10 @@ static struct cgroup_skb_bpf *init_cgroup_skb_bpf(void)
 
 static int attach_cgroup_skb_bpf(struct cgroup_skb_bpf *skel)
 {
-    int cg_fd = open(cgroup_root, O_DIRECTORY | O_RDONLY);
+    int cg_fd = open(CGROUP_ROOT, O_DIRECTORY | O_RDONLY);
     if (cg_fd < 0)
     {
-        fprintf(stderr, "Cannot open %s\n", cgroup_root);
+        fprintf(stderr, "Cannot open %s\n", CGROUP_ROOT);
         return -1;
     }
 
@@ -130,98 +89,14 @@ static int attach_cgroup_skb_bpf(struct cgroup_skb_bpf *skel)
     skel->links.cg_ingress = ingress_link;
 
     close(cg_fd);
-    printf("cgroup_skb attached to %s!\n", cgroup_root);
+    printf("cgroup_skb attached to %s (root)!\n", CGROUP_ROOT);
     return 0;
 }
 
 static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
+                                socket_proccess_t *sockets, int n_sockets,
                                 const struct rule *rules, int n_rules,
                                 unsigned long long capacity_bps)
-{
-    n_cg_entries = 0;
-
-    for (int i = 0; i < n_rules; i++)
-    {
-        if (strcmp(rules[i].comm, "*") == 0)
-        {
-            strncpy(cg_entries[0].name, "default", sizeof(cg_entries[0].name) - 1);
-            continue;
-        }
-
-        char safe_name[16];
-        strncpy(safe_name, rules[i].comm, sizeof(safe_name) - 1);
-        for (char *p = safe_name; *p; p++)
-            if (*p == '/' || *p == '.') *p = '_';
-
-        if (n_cg_entries < MAX_CGROUPS)
-        {
-            strncpy(cg_entries[n_cg_entries].name, safe_name,
-                    sizeof(cg_entries[n_cg_entries].name) - 1);
-            n_cg_entries++;
-        }
-    }
-
-    for (int i = 0; i <= n_cg_entries; i++)
-    {
-        const char *name = (i == 0) ? "default" : cg_entries[i].name;
-        if (create_rule_cgroup(name)) continue;
-
-        __u64 cgid = get_cgroup_id(name);
-        if (!cgid) continue;
-
-        if (i == 0)
-            cg_entries[0].cgid = cgid;
-        else
-            cg_entries[i].cgid = cgid;
-
-        const struct rule *rule = NULL;
-        if (i == 0)
-        {
-            rule = match_rule(rules, n_rules, "*");
-        }
-        else
-        {
-            for (int j = 0; j < n_rules; j++)
-                if (strcmp(rules[j].comm, cg_entries[i].name) == 0)
-                    rule = &rules[j];
-        }
-
-        if (!rule) continue;
-
-        unsigned int rate_bps = (unsigned int)(capacity_bps * rule->bandwidth_pct / 100);
-        struct flow_info fi = {
-            .action = rule->action,
-            .egress_strategy = rule->egress_strategy,
-            .ingress_strategy = rule->ingress_strategy,
-            .rate_bps = rate_bps,
-        };
-
-        if (bpf_map__update_elem(skel->maps.cgroup_rule_map,
-                                 &cgid, sizeof(cgid), &fi, sizeof(fi), BPF_ANY))
-            fprintf(stderr, "cgroup_rule_map update failed for %s\n", name);
-
-        if (rate_bps > 0)
-        {
-            unsigned int burst = rate_bps / 8;
-            struct rate_bucket rb = {
-                .tokens = burst,
-                .last_ns = 0,
-                .rate_bps = rate_bps,
-                .burst = burst,
-            };
-            if (bpf_map__update_elem(skel->maps.cg_egress_buckets,
-                                     &cgid, sizeof(cgid), &rb, sizeof(rb), BPF_ANY))
-                fprintf(stderr, "cg_egress_buckets update failed for %s\n", name);
-            if (bpf_map__update_elem(skel->maps.cg_ingress_buckets,
-                                     &cgid, sizeof(cgid), &rb, sizeof(rb), BPF_ANY))
-                fprintf(stderr, "cg_ingress_buckets update failed for %s\n", name);
-        }
-    }
-}
-
-static void enforce_cgroup_pids(struct cgroup_skb_bpf *skel,
-                                 socket_proccess_t *sockets, int n_sockets,
-                                 const struct rule *rules, int n_rules)
 {
     for (int i = 0; i < n_sockets; i++)
     {
@@ -234,11 +109,38 @@ static void enforce_cgroup_pids(struct cgroup_skb_bpf *skel,
         const struct rule *rule = match_rule(rules, n_rules, sockets[i].name);
         if (!rule) continue;
 
-        const char *cg_name = "default";
-        if (strcmp(rule->comm, "*") != 0)
-            cg_name = rule->comm;
+        __u64 cgid = get_pid_cgroup_id(pid);
+        if (!cgid) continue;
 
-        move_pid_to_cgroup(pid, cg_name);
+        unsigned int rate_bps = (unsigned int)(capacity_bps * rule->bandwidth_pct / 100);
+        struct flow_info fi = {
+            .action = rule->action,
+            .egress_strategy = rule->egress_strategy,
+            .ingress_strategy = rule->ingress_strategy,
+            .rate_bps = rate_bps,
+        };
+
+        if (bpf_map__update_elem(skel->maps.cgroup_rule_map,
+                                 &cgid, sizeof(cgid), &fi, sizeof(fi), BPF_ANY))
+            fprintf(stderr, "cgroup_rule_map update failed for PID %d (%s)\n",
+                    pid, sockets[i].name);
+
+        if (rate_bps > 0)
+        {
+            unsigned int burst = rate_bps / 8;
+            struct rate_bucket rb = {
+                .tokens = burst,
+                .last_ns = 0,
+                .rate_bps = rate_bps,
+                .burst = burst,
+            };
+            if (bpf_map__update_elem(skel->maps.cg_egress_buckets,
+                                     &cgid, sizeof(cgid), &rb, sizeof(rb), BPF_ANY))
+                fprintf(stderr, "cg_egress_buckets update failed for PID %d\n", pid);
+            if (bpf_map__update_elem(skel->maps.cg_ingress_buckets,
+                                     &cgid, sizeof(cgid), &rb, sizeof(rb), BPF_ANY))
+                fprintf(stderr, "cg_ingress_buckets update failed for PID %d\n", pid);
+        }
     }
 }
 

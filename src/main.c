@@ -329,14 +329,6 @@ int main(int argc, char *argv[])
     if (attach_rtt(rtt_skel)) { cleanup_rtt(rtt_skel); free(iface); return 1; }
     printf("BPF program loaded (RTT)!\n");
 
-    if (init_cgroup_fs())
-    {
-        fprintf(stderr, "cgroupv2 not available, try: sudo mount -t cgroup2 none /sys/fs/cgroup\n");
-        cleanup_rtt(rtt_skel);
-        free(iface);
-        return 1;
-    }
-
     struct cgroup_skb_bpf *cg_skel = init_cgroup_skb_bpf();
     if (!cg_skel)
     {
@@ -347,6 +339,7 @@ int main(int argc, char *argv[])
 
     if (attach_cgroup_skb_bpf(cg_skel))
     {
+        cleanup_cgroup_skb_bpf(cg_skel);
         cleanup_rtt(rtt_skel);
         free(iface);
         return 1;
@@ -388,7 +381,7 @@ int main(int argc, char *argv[])
         if (n_udp == 0 && n_udp_raw > 0)
             fprintf(stderr, "[WARN] 0/%d UDP sockets matched\n", n_udp_raw);
 
-        n_sockets += n_udp;
+        n_sockets += n_udp_raw;
         int n_agg = aggregate_by_pid(sockets, n_sockets, agg);
 
         unsigned long long sum_tx, sum_rx;
@@ -401,8 +394,7 @@ int main(int argc, char *argv[])
         n_rules = parse_rules(config_path, rules, MAX_RULES);
         if (n_rules > 0)
         {
-            setup_cgroup_rules(cg_skel, rules, n_rules, cap);
-            enforce_cgroup_pids(cg_skel, sockets, n_sockets, rules, n_rules);
+            setup_cgroup_rules(cg_skel, sockets, n_sockets, rules, n_rules, cap);
             free_rules(rules, n_rules);
         }
 
