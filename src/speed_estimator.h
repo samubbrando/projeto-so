@@ -98,7 +98,6 @@ void speed_estimator_update(struct speed_estimator *est,
         est->last_test_ns = now_ns;
     }
 
-    est->prev_egress_bytes = egress_bytes;
     est->prev_time_ns = now_ns;
 }
 
