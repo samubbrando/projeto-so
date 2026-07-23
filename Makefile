@@ -13,7 +13,7 @@ CG_BPF_C  := $(SRC)/bpf/cgroup_skb.bpf.c
 CG_BPF_O  := $(SRC)/bpf/cgroup_skb.bpf.o
 CG_SKEL   := $(SRC)/bpf/cgroup_skb.skel.h
 USER_C    := $(SRC)/main.c
-TARGET    := rtt
+TARGET    := scheduler
 
 VMLINUX_H := $(SRC)/bpf/vmlinux.h
 

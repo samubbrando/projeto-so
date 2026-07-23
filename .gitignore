@@ -2,7 +2,7 @@
 *.skel.json
 package.json
 vmlinux.h
-rtt
+scheduler
 *.out
 *.skel.h
 *.skel.*
