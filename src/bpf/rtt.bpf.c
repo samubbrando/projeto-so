@@ -9,7 +9,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define MAX_ENTRIES 4096
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, struct conn_key);
