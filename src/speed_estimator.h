@@ -28,10 +28,16 @@ struct speed_estimator {
     uint64_t last_test_ns;
     int interval_s;
     char payload[EST_PACKET_SIZE];
+
+    char iface[64];
+    unsigned long long prev_tx_bytes;
 };
 
 void speed_estimator_init(struct speed_estimator *est, const char *iface) {
     memset(est, 0, sizeof(struct speed_estimator));
+
+    strncpy(est->iface, iface, sizeof(est->iface) - 1);
+    est->prev_tx_bytes = 0;
 
     est->test_sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (est->test_sock < 0) 
@@ -59,17 +65,36 @@ void speed_estimator_init(struct speed_estimator *est, const char *iface) {
     }
 }
 
+static unsigned long long read_tx_bytes(const char *iface) {
+    char path[256];
+    snprintf(path, sizeof(path), "/sys/class/net/%s/statistics/tx_bytes", iface);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+    unsigned long long val = 0;
+    fscanf(fp, "%llu", &val);
+    fclose(fp);
+    return val;
+}
+
 void speed_estimator_update(struct speed_estimator *est,
-                            unsigned long long (*read_egress)(void),
                             uint64_t now_ns) {
     if (est->prev_time_ns == 0) {
         est->prev_time_ns = now_ns;
         return;
     }
 
+    unsigned long long curr = read_tx_bytes(est->iface);
+    if (est->prev_tx_bytes > 0) {
+        unsigned long long delta = curr - est->prev_tx_bytes;
+        uint64_t dt = now_ns - est->prev_time_ns;
+        if (dt > 0)
+            est->current_speed_bps = delta * 8000000000ULL / dt;
+    }
+    est->prev_tx_bytes = curr;
+
     if (now_ns - est->last_test_ns >= (uint64_t)est->interval_s * 1000000000ULL) {
         if (est->test_sock >= 0) {
-            unsigned long long before = read_egress();
+            unsigned long long before = read_tx_bytes(est->iface);
 
             struct timespec t0, t1;
             clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -89,7 +114,7 @@ void speed_estimator_update(struct speed_estimator *est,
                 (t1.tv_nsec - t0.tv_nsec);
 
             if (test_ns > 50) {
-                unsigned long long after = read_egress();
+                unsigned long long after = read_tx_bytes(est->iface);
                 unsigned long long test_bytes = after - before;
                 unsigned long long test_bps = test_bytes * 8000000000ULL / test_ns;
                 est->active_test_bps = test_bps;

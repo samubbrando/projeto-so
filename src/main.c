@@ -15,38 +15,12 @@
 
 #define MAX_RULES 256
 
-static struct cgroup_skb_bpf *g_cg_skel;
-
-static unsigned long long read_egress_bytes(void) {
-    if (!g_cg_skel) return 0;
-    int ncpus = libbpf_num_possible_cpus();
-    struct egress_stats vals[ncpus];
-    __u32 zero = 0;
-    if (bpf_map__lookup_elem(g_cg_skel->maps.cg_egress_stats,
-                             &zero, sizeof(zero),
-                             vals, sizeof(struct egress_stats) * ncpus, 0))
-        return 0;
-    unsigned long long total = 0;
-    for (int i = 0; i < ncpus; i++)
-        total += vals[i].bytes;
-    return total;
-}
-
 struct proc_prev
 {
     char pid[16];
     uint64_t timestamp_ns;
     unsigned long long tx_bytes;
     unsigned long long rx_bytes;
-};
-
-struct global_prev
-{
-    uint64_t timestamp_ns;
-    unsigned long long rx_bytes;
-    unsigned long long tx_bytes;
-    unsigned long long sum_rx;
-    unsigned long long sum_tx;
 };
 
 static uint64_t now_ns(void)
@@ -145,19 +119,6 @@ static int aggregate_by_pid(socket_proccess_t *sockets, int n_sockets,
     return n_agg;
 }
 
-static void sum_per_process(proc_agg_t *agg, int n_agg,
-                             unsigned long long *out_sum_tx,
-                             unsigned long long *out_sum_rx)
-{
-    *out_sum_tx = 0;
-    *out_sum_rx = 0;
-    for (int i = 0; i < n_agg; i++)
-    {
-        *out_sum_tx += agg[i].tx_bytes;
-        *out_sum_rx += agg[i].rx_bytes;
-    }
-}
-
 static void print_per_process(proc_agg_t *agg, int n_agg,
                                struct proc_prev *prev, int *n_prev,
                                uint64_t now)
@@ -197,85 +158,6 @@ static void print_per_process(proc_agg_t *agg, int n_agg,
         printf("PID=%s(%s)  TX=%.0f B/s  RX=%.0f B/s  sockets=%d\n",
                agg[i].pid, agg[i].name, tp_sent, tp_recv, agg[i].socket_count);
     }
-}
-
-static void print_global_interface(const char *iface,
-                                    struct cgroup_skb_bpf *cg_skel,
-                                    struct ingress_stats *ingress,
-                                    struct egress_stats *egress,
-                                    struct global_prev *g_prev,
-                                    uint64_t now,
-                                    unsigned long long sum_tx,
-                                    unsigned long long sum_rx)
-{
-    int ncpus = libbpf_num_possible_cpus();
-
-    __u32 zero = 0;
-    struct egress_stats e_percpu[ncpus];
-    if (!bpf_map__lookup_elem(cg_skel->maps.cg_egress_stats,
-                              &zero, sizeof(zero),
-                              e_percpu, sizeof(struct egress_stats) * ncpus, 0))
-    {
-        memset(egress, 0, sizeof(*egress));
-        for (int i = 0; i < ncpus; i++) {
-            egress->bytes += e_percpu[i].bytes;
-            egress->packets += e_percpu[i].packets;
-        }
-    }
-
-    struct ingress_stats i_percpu[ncpus];
-    if (!bpf_map__lookup_elem(cg_skel->maps.cg_ingress_stats,
-                              &zero, sizeof(zero),
-                              i_percpu, sizeof(struct ingress_stats) * ncpus, 0))
-    {
-        memset(ingress, 0, sizeof(*ingress));
-        for (int i = 0; i < ncpus; i++) {
-            ingress->bytes += i_percpu[i].bytes;
-            ingress->packets += i_percpu[i].packets;
-        }
-    }
-
-    printf("=== Interface [%s] ===\n", iface);
-
-    if (g_prev->timestamp_ns != 0)
-    {
-        uint64_t dt = now - g_prev->timestamp_ns;
-        if (dt > 0)
-        {
-            unsigned long long rx_global_delta = ingress->bytes - g_prev->rx_bytes;
-            unsigned long long tx_global_delta = egress->bytes  - g_prev->tx_bytes;
-            unsigned long long rx_proc_delta   = sum_rx - g_prev->sum_rx;
-            unsigned long long tx_proc_delta   = sum_tx - g_prev->sum_tx;
-
-            double rx_bps = (double)rx_global_delta * 1e9 / dt;
-            double tx_bps = (double)tx_global_delta * 1e9 / dt;
-
-            printf("RX: %.0f B/s  TX: %.0f B/s\n", rx_bps, tx_bps);
-
-            if (rx_global_delta > 0)
-            {
-                double rx_pct = 100.0 * (double)rx_proc_delta / rx_global_delta;
-                if (rx_pct < 50.0 || rx_pct > 150.0)
-                    printf("[ALERTA] RX: apenas %.0f%% contabilizado por processos\n", rx_pct);
-            }
-            if (tx_global_delta > 0)
-            {
-                double tx_pct = 100.0 * (double)tx_proc_delta / tx_global_delta;
-                if (tx_pct < 50.0 || tx_pct > 150.0)
-                    printf("[ALERTA] TX: apenas %.0f%% contabilizado por processos\n", tx_pct);
-            }
-        }
-    }
-    else
-    {
-        printf("(coletando baseline...)\n");
-    }
-
-    g_prev->timestamp_ns = now;
-    g_prev->rx_bytes = ingress->bytes;
-    g_prev->tx_bytes = egress->bytes;
-    g_prev->sum_rx = sum_rx;
-    g_prev->sum_tx = sum_tx;
 }
 
 static void print_usage(const char *prog)
@@ -337,25 +219,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if (attach_cgroup_skb_bpf(cg_skel))
-    {
-        cleanup_cgroup_skb_bpf(cg_skel);
-        cleanup_rtt(rtt_skel);
-        free(iface);
-        return 1;
-    }
-
-    g_cg_skel = cg_skel;
-
     struct speed_estimator est;
     speed_estimator_init(&est, iface);
 
     struct bpf_map *hists_map = rtt_skel->maps.hists;
     struct bpf_map *udp_map = rtt_skel->maps.udp_hists;
     struct proc_prev *proc_prev = calloc(MAX_PROCCESSES, sizeof(struct proc_prev));
-    struct ingress_stats ingress = {0};
-    struct egress_stats egress = {0};
-    struct global_prev g_prev = {0};
     int n_proc_prev = 0;
 
     struct rule rules[MAX_RULES];
@@ -384,17 +253,13 @@ int main(int argc, char *argv[])
         n_sockets += n_udp_raw;
         int n_agg = aggregate_by_pid(sockets, n_sockets, agg);
 
-        unsigned long long sum_tx, sum_rx;
-        sum_per_process(agg, n_agg, &sum_tx, &sum_rx);
-
         uint64_t now = now_ns();
-        speed_estimator_update(&est, read_egress_bytes, now);
-        unsigned long long cap = speed_estimator_capacity(&est);
+        speed_estimator_update(&est, now);
 
         n_rules = parse_rules(config_path, rules, MAX_RULES);
         if (n_rules > 0)
         {
-            setup_cgroup_rules(cg_skel, sockets, n_sockets, rules, n_rules, cap);
+            setup_cgroup_rules(cg_skel, sockets, n_sockets, rules, n_rules);
             free_rules(rules, n_rules);
         }
 
@@ -403,13 +268,9 @@ int main(int argc, char *argv[])
         free(agg);
         free(sockets);
 
-        print_global_interface(iface, cg_skel,
-                               &ingress, &egress, &g_prev,
-                               now, sum_tx, sum_rx);
-
         printf("=== Capacidade estimada ===\n");
         printf("Capacity: %llu bps  (test=%llu  sysfs=%llu)\n",
-               cap, est.active_test_bps, est.sysfs_speed_bps);
+               speed_estimator_capacity(&est), est.active_test_bps, est.sysfs_speed_bps);
 
         sleep(1);
     }
