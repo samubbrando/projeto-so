@@ -120,17 +120,15 @@ void speed_estimator_update(struct speed_estimator *est,
         est->last_test_ns = now_ns;
     }
 
-    est->current_speed_bps = est->peak_observed_bps;
-    if (est->active_test_bps > est->current_speed_bps)
-        est->current_speed_bps = est->active_test_bps;
-    if (est->sysfs_speed_bps > est->current_speed_bps)
-        est->current_speed_bps = est->sysfs_speed_bps;
-
     est->prev_egress_bytes = egress_bytes;
     est->prev_time_ns = now_ns;
 }
 
 unsigned long long speed_estimator_capacity(struct speed_estimator *est) {
+    if (est->active_test_bps > 0)
+        return est->active_test_bps;
+    if (est->sysfs_speed_bps > 0)
+        return est->sysfs_speed_bps;
     return est->current_speed_bps;
 }
 

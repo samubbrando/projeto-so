@@ -30,6 +30,7 @@ typedef struct socket_proccess {
     unsigned long long tx_bytes;
     unsigned long long rx_bytes;
     unsigned int rtt;
+    int protocol;
 } socket_proccess_t;
 
 typedef struct proc_agg {
@@ -121,7 +122,7 @@ char* detect_default_iface(void) {
     return NULL;
 }
 
-int discover_sockets(socket_proccess_t *sockets_captured) {
+int discover_sockets(socket_proccess_t *sockets_captured, int protocol) {
     int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_SOCK_DIAG);
     int total_sockets_found = 0;
 
@@ -153,19 +154,40 @@ int discover_sockets(socket_proccess_t *sockets_captured) {
 
     request.req.idiag_states = ~0;
     request.req.sdiag_family = AF_INET;
-    request.req.sdiag_protocol = IPPROTO_TCP;
+    request.req.sdiag_protocol = protocol;
 
     struct sockaddr_nl kernel = {0};
     kernel.nl_family = AF_NETLINK;
 
-    sendto(sock, &request, sizeof(request), 0, (struct sockaddr *)&kernel, sizeof(kernel));
-    
-    char buffer[8192];
-    int len = recv(sock, buffer, sizeof(buffer), 0);
+    if (sendto(sock, &request, sizeof(request), 0, (struct sockaddr *)&kernel, sizeof(kernel)) < 0) {
+        perror("sendto");
+        close(sock);
+        return 1;
+    }
 
+    char buffer[65536];
+    int len = 0;
+
+    while (1) {
+        int ret = recv(sock, buffer + len, sizeof(buffer) - len, 0);
+        if (ret < 0) { perror("recv"); break; }
+        if (ret == 0) break;
+        len += ret;
+
+        struct nlmsghdr *last = (struct nlmsghdr *)buffer;
+        int rem = len;
+        while (NLMSG_OK(last, rem)) {
+            if (last->nlmsg_type == NLMSG_DONE) goto parse;
+            last = NLMSG_NEXT(last, rem);
+        }
+        if (len >= (int)sizeof(buffer)) break;
+    }
+
+parse:
     struct nlmsghdr *nlh;
+    int remaining = len;
 
-    for (nlh = (struct nlmsghdr *)buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+    for (nlh = (struct nlmsghdr *)buffer; NLMSG_OK(nlh, remaining); nlh = NLMSG_NEXT(nlh, remaining)) {
         if (nlh->nlmsg_type == NLMSG_DONE) break;
         if (nlh->nlmsg_type == NLMSG_ERROR) {
             printf("Erro na mensagem Netlink\n");
@@ -189,6 +211,7 @@ int discover_sockets(socket_proccess_t *sockets_captured) {
         sockets_captured[total_sockets_found].src_port = sport;
         strncpy(sockets_captured[total_sockets_found].end_ip, dst, INET_ADDRSTRLEN);
         sockets_captured[total_sockets_found].end_port = dport;
+        sockets_captured[total_sockets_found].protocol = protocol;
 
         find_pids_for_inode(diag->idiag_inode, sockets_captured, total_sockets_found);
         total_sockets_found++;

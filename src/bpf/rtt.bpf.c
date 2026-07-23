@@ -13,49 +13,87 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, struct conn_key);
-    __type(value, struct hist); 
+    __type(value, struct hist);
 } hists SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, struct conn_key);
+    __type(value, struct udp_stat);
+} udp_hists SEC(".maps");
+
 static struct hist zero;
+static struct udp_stat zero_udp;
 
 SEC("fentry/tcp_rcv_established")
-int BPF_PROG(
-    tcp_rcv, // Nome do programa 
-    struct sock *sk
-) {
+int BPF_PROG(tcp_rcv, struct sock *sk)
+{
     struct conn_key key = {};
-    struct hist *histp; // Eu recebo um ponteiro do ebpf
-    struct tcp_sock *tp = (struct tcp_sock *) sk;
+    struct hist *histp;
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
 
-    u16 src_port  =  BPF_CORE_READ(sk, __sk_common.skc_num);
-    u32 src_ip = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
-    
-    u16 dst_port  = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
-    u32 dst_ip = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    key.src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    key.src_ip = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+    key.dst_port = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+    key.dst_ip = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    key.protocol = 6;
 
-    u32 rtt = BPF_CORE_READ(tp, srtt_us) >> 3; // Linux armazena escalado p 8
-
+    u32 rtt = BPF_CORE_READ(tp, srtt_us) >> 3;
     u64 sent = BPF_CORE_READ(tp, bytes_acked);
     u64 received = BPF_CORE_READ(tp, bytes_received);
-    
-    key.src_port = src_port;
-    key.src_ip = src_ip;
-    key.dst_port = dst_port;
-    key.dst_ip = dst_ip;
 
     histp = bpf_map_lookup_elem(&hists, &key);
-
     if (!histp) {
         bpf_map_update_elem(&hists, &key, &zero, BPF_ANY);
-
         histp = bpf_map_lookup_elem(&hists, &key);
-        if (!histp)
-            return 0;
+        if (!histp) return 0;
     }
 
     histp->rtt = rtt;
     histp->sent = sent;
     histp->received = received;
+    return 0;
+}
 
+SEC("fentry/udp_recvmsg")
+int BPF_PROG(udp_recv, struct sock *sk, struct msghdr *msg, size_t len, int flags, int *addr_len)
+{
+    struct conn_key key = {};
+
+    key.src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    key.src_ip = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+    key.dst_port = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+    key.dst_ip = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    key.protocol = 17;
+
+    struct udp_stat *stat = bpf_map_lookup_elem(&udp_hists, &key);
+    if (!stat) {
+        bpf_map_update_elem(&udp_hists, &key, &zero_udp, BPF_ANY);
+        stat = bpf_map_lookup_elem(&udp_hists, &key);
+        if (!stat) return 0;
+    }
+    __sync_fetch_and_add(&stat->rx_bytes, len);
+    return 0;
+}
+
+SEC("fentry/udp_sendmsg")
+int BPF_PROG(udp_send, struct sock *sk, struct msghdr *msg, size_t len)
+{
+    struct conn_key key = {};
+
+    key.src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    key.src_ip = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+    key.dst_port = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+    key.dst_ip = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    key.protocol = 17;
+
+    struct udp_stat *stat = bpf_map_lookup_elem(&udp_hists, &key);
+    if (!stat) {
+        bpf_map_update_elem(&udp_hists, &key, &zero_udp, BPF_ANY);
+        stat = bpf_map_lookup_elem(&udp_hists, &key);
+        if (!stat) return 0;
+    }
+    __sync_fetch_and_add(&stat->tx_bytes, len);
     return 0;
 }

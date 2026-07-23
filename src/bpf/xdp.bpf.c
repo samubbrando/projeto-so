@@ -57,8 +57,12 @@ int xdp_ingress(struct xdp_md *ctx)
 
     __u32 saddr = iph->saddr;
     struct block_entry *entry = bpf_map_lookup_elem(&blocklist_map, &saddr);
-    if (!entry)
+    if (!entry) {
+        bpf_printk("XDP: src_ip not in blocklist");
         return XDP_PASS;
+    }
+
+    bpf_printk("XDP: FOUND action=%d", entry->action);
 
     if (entry->action == BLOCK)
         return XDP_DROP;
@@ -97,5 +101,5 @@ int xdp_ingress(struct xdp_md *ctx)
     }
 
 
-    return XDP_DROP;
+    return XDP_PASS;
 }
