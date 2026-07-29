@@ -24,6 +24,17 @@ static struct cgroup_skb_bpf *init_cgroup_skb_bpf(void)
     return skel;
 }
 
+static int attach_cgroup_skb_bpf(struct cgroup_skb_bpf *skel) {
+    if (cgroup_skb_bpf__attach(skel)) 
+    {
+        fprintf(stderr, "Failure attaching BPF (CGROUP_SKB)\n");
+        return 1;
+    }
+
+    printf("BPF program attached (CGROUP_SKB)!\n");
+    return 0;
+}
+
 static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
                                 socket_proccess_t *sockets, int n_sockets,
                                 const struct rule *rules, int n_rules)

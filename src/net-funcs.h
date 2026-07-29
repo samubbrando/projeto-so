@@ -140,9 +140,8 @@ char *detect_default_iface(void)
     return NULL;
 }
 
-int discover_sockets(socket_proccess_t *sockets_captured, int protocol) {
+int discover_sockets(socket_proccess_t *sockets_captured, int protocol, int *total_sockets_found) {
     int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_SOCK_DIAG);
-    int total_sockets_found = 0;
 
     if (sock < 0)
     {
@@ -226,20 +225,20 @@ parse:
         int sport = ntohs(diag->id.idiag_sport);
         int dport = ntohs(diag->id.idiag_dport);
 
-        memset(&sockets_captured[total_sockets_found], 0, sizeof(socket_proccess_t));
+        memset(&sockets_captured[*total_sockets_found], 0, sizeof(socket_proccess_t));
 
-        strncpy(sockets_captured[total_sockets_found].src_ip, src, INET_ADDRSTRLEN);
-        sockets_captured[total_sockets_found].src_port = sport;
-        strncpy(sockets_captured[total_sockets_found].end_ip, dst, INET_ADDRSTRLEN);
-        sockets_captured[total_sockets_found].end_port = dport;
-        sockets_captured[total_sockets_found].protocol = protocol;
+        strncpy(sockets_captured[*total_sockets_found].src_ip, src, INET_ADDRSTRLEN);
+        sockets_captured[*total_sockets_found].src_port = sport;
+        strncpy(sockets_captured[*total_sockets_found].end_ip, dst, INET_ADDRSTRLEN);
+        sockets_captured[*total_sockets_found].end_port = dport;
+        sockets_captured[*total_sockets_found].protocol = protocol;
 
-        find_pids_for_inode(diag->idiag_inode, sockets_captured, total_sockets_found);
-        total_sockets_found++;
+        find_pids_for_inode(diag->idiag_inode, sockets_captured, *total_sockets_found);
+        (*total_sockets_found)++;
     }
 
     close(sock);
-    return total_sockets_found;
+    return 0;
 }
 
 #endif

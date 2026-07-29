@@ -10,7 +10,10 @@
 #include "common/hist.h"
 #include "net-funcs.h"
 #include "rtt.h"
+#include "xdp.h"
+#include "tc.h"
 #include "cgroup_manager.h"
+#include "orchestrator.h"
 #include "speed_estimator.h"
 
 #define MAX_RULES 256
@@ -31,17 +34,20 @@ static uint64_t now_ns(void)
 }
 
 static int read_socket_data(struct bpf_map *hists_map,
-                             socket_proccess_t *sockets, int n_sockets)
+                            socket_proccess_t *sockets, int n_sockets)
 {
     int count = 0;
     for (int i = 0; i < n_sockets; i++)
     {
-        if (sockets[i].pid[0] == '\0') continue;
+        if (sockets[i].pid[0] == '\0')
+            continue;
 
         struct conn_key ck = {0};
-        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1) continue;
+        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1)
+            continue;
         ck.src_port = sockets[i].src_port;
-        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1) continue;
+        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1)
+            continue;
         ck.dst_port = sockets[i].end_port;
         ck.protocol = 6;
 
@@ -59,17 +65,20 @@ static int read_socket_data(struct bpf_map *hists_map,
 }
 
 static int read_udp_socket_data(struct bpf_map *udp_map,
-                                 socket_proccess_t *sockets, int n_sockets)
+                                socket_proccess_t *sockets, int n_sockets)
 {
     int count = 0;
     for (int i = 0; i < n_sockets; i++)
     {
-        if (sockets[i].pid[0] == '\0') continue;
+        if (sockets[i].pid[0] == '\0')
+            continue;
 
         struct conn_key ck = {0};
-        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1) continue;
+        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1)
+            continue;
         ck.src_port = sockets[i].src_port;
-        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1) continue;
+        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1)
+            continue;
         ck.dst_port = sockets[i].end_port;
         ck.protocol = 17;
 
@@ -86,12 +95,13 @@ static int read_udp_socket_data(struct bpf_map *udp_map,
 }
 
 static int aggregate_by_pid(socket_proccess_t *sockets, int n_sockets,
-                             proc_agg_t *agg)
+                            proc_agg_t *agg)
 {
     int n_agg = 0;
     for (int i = 0; i < n_sockets; i++)
     {
-        if (sockets[i].pid[0] == '\0') continue;
+        if (sockets[i].pid[0] == '\0')
+            continue;
 
         proc_agg_t *p = NULL;
         for (int j = 0; j < n_agg; j++)
@@ -120,8 +130,8 @@ static int aggregate_by_pid(socket_proccess_t *sockets, int n_sockets,
 }
 
 static void print_per_process(proc_agg_t *agg, int n_agg,
-                               struct proc_prev *prev, int *n_prev,
-                               uint64_t now)
+                              struct proc_prev *prev, int *n_prev,
+                              uint64_t now)
 {
     for (int i = 0; i < n_agg; i++)
     {
@@ -207,8 +217,17 @@ int main(int argc, char *argv[])
     }
 
     struct rtt_bpf *rtt_skel = init_rtt();
-    if (!rtt_skel) { free(iface); return 1; }
-    if (attach_rtt(rtt_skel)) { cleanup_rtt(rtt_skel); free(iface); return 1; }
+    if (!rtt_skel)
+    {
+        free(iface);
+        return 1;
+    }
+    if (attach_rtt(rtt_skel))
+    {
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
     printf("BPF program loaded (RTT)!\n");
 
     struct cgroup_skb_bpf *cg_skel = init_cgroup_skb_bpf();
@@ -218,14 +237,58 @@ int main(int argc, char *argv[])
         free(iface);
         return 1;
     }
+    if (attach_cgroup_skb_bpf(cg_skel)) {
+        cleanup_cgroup_skb_bpf(cg_skel);
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
 
     struct speed_estimator est;
     speed_estimator_init(&est, iface);
+    unsigned long long cap = speed_estimator_capacity(&est);
 
     struct bpf_map *hists_map = rtt_skel->maps.hists;
     struct bpf_map *udp_map = rtt_skel->maps.udp_hists;
     struct proc_prev *proc_prev = calloc(MAX_PROCCESSES, sizeof(struct proc_prev));
     int n_proc_prev = 0;
+
+    struct xdp_bpf *xdp_skel = init_xdp();
+    if (!xdp_skel)
+    {
+        free(proc_prev);
+        cleanup_cgroup_skb_bpf(cg_skel);
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
+    if (attach_xdp(xdp_skel, iface))
+    {
+        cleanup_xdp(xdp_skel);
+        cleanup_cgroup_skb_bpf(cg_skel);
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
+
+    struct tc_bpf *tc_skel = init_tc();
+    if (!tc_skel)
+    {
+        cleanup_xdp(xdp_skel);
+        cleanup_cgroup_skb_bpf(cg_skel);
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
+    if (attach_tc_egress(tc_skel, iface))
+    {
+        cleanup_tc(tc_skel);
+        cleanup_xdp(xdp_skel);
+        cleanup_cgroup_skb_bpf(cg_skel);
+        cleanup_rtt(rtt_skel);
+        free(iface);
+        return 1;
+    }
 
     struct rule rules[MAX_RULES];
     int n_rules;
@@ -235,17 +298,24 @@ int main(int argc, char *argv[])
         printf("\n=== Por processo ===\n");
 
         socket_proccess_t *sockets = malloc(sizeof(socket_proccess_t) * MAX_SOCKETS);
-        if (!sockets) break;
+        if (!sockets)
+            break;
 
         proc_agg_t *agg = calloc(MAX_PROCCESSES, sizeof(proc_agg_t));
-        if (!agg) { free(sockets); break; }
+        if (!agg)
+        {
+            free(sockets);
+            break;
+        }
 
-        int n_sockets = discover_sockets(sockets, 6);
+        int n_sockets; 
+        discover_sockets(sockets, 6, &n_sockets);
         int n_tcp = read_socket_data(hists_map, sockets, n_sockets);
         if (n_tcp == 0 && n_sockets > 0)
             fprintf(stderr, "[WARN] 0/%d TCP sockets matched\n", n_sockets);
 
-        int n_udp_raw = discover_sockets(sockets + n_sockets, 17);
+        int n_udp_raw; 
+        discover_sockets(sockets + n_sockets, 17, &n_udp_raw);
         int n_udp = read_udp_socket_data(udp_map, sockets + n_sockets, n_udp_raw);
         if (n_udp == 0 && n_udp_raw > 0)
             fprintf(stderr, "[WARN] 0/%d UDP sockets matched\n", n_udp_raw);
@@ -255,11 +325,13 @@ int main(int argc, char *argv[])
 
         uint64_t now = now_ns();
         speed_estimator_update(&est, now);
+        cap = speed_estimator_capacity(&est);
 
         n_rules = parse_rules(config_path, rules, MAX_RULES);
         if (n_rules > 0)
         {
             setup_cgroup_rules(cg_skel, sockets, n_sockets, rules, n_rules);
+            orchestrator_apply(rules, n_rules, sockets, n_sockets, xdp_skel, tc_skel, cap, now);
             free_rules(rules, n_rules);
         }
 
@@ -280,5 +352,10 @@ int main(int argc, char *argv[])
     free(iface);
     cleanup_cgroup_skb_bpf(cg_skel);
     cleanup_rtt(rtt_skel);
+    
+    orchestrator_cleanup_maps(xdp_skel, tc_skel);
+    cleanup_tc(tc_skel);
+    cleanup_xdp(xdp_skel);
+    
     return 0;
 }

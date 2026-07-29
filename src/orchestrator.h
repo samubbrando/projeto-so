@@ -43,7 +43,7 @@ void orchestrator_apply(
             .dst_ip = dst_ip,
             .src_port = (unsigned short)sockets[i].src_port,
             .dst_port = (unsigned short)sockets[i].end_port,
-            .protocol = IPPROTO_TCP,
+            .protocol = sockets[i].protocol,
         };
 
         unsigned int rate_bps = (unsigned int)(capacity_bps * rule->bandwidth_pct / 100);
