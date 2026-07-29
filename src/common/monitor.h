@@ -44,6 +44,15 @@ struct flow_key
     unsigned char protocol;
 };
 
+struct flow_key_v6
+{
+    unsigned char src_ip[16];
+    unsigned char dst_ip[16];
+    unsigned short src_port;
+    unsigned short dst_port;
+    unsigned char protocol;
+};
+
 struct flow_info
 {
     unsigned char action;
@@ -57,6 +66,11 @@ struct block_entry
     unsigned char action;
     unsigned char ingress_strategy;
     unsigned int rate_bps;
+};
+
+struct ip_key_v6
+{
+    unsigned int addr[4];
 };
 
 

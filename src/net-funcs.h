@@ -24,14 +24,15 @@ typedef struct socket_proccess
     int socket_inode;
     char name[MAX_NAME_SIZE];
     char pid[16];
-    char src_ip[INET_ADDRSTRLEN];
+    char src_ip[INET6_ADDRSTRLEN];
     int src_port;
-    char end_ip[INET_ADDRSTRLEN];
+    char end_ip[INET6_ADDRSTRLEN];
     int end_port;
     unsigned long long tx_bytes;
     unsigned long long rx_bytes;
     unsigned int rtt;
     int protocol;
+    int family;
 } socket_proccess_t;
 
 typedef struct proc_agg
@@ -140,7 +141,7 @@ char *detect_default_iface(void)
     return NULL;
 }
 
-int discover_sockets(socket_proccess_t *sockets_captured, int protocol, int *total_sockets_found) {
+int discover_sockets(socket_proccess_t *sockets_captured, int protocol, int family, int *total_sockets_found) {
     int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_SOCK_DIAG);
 
     if (sock < 0)
@@ -173,7 +174,7 @@ int discover_sockets(socket_proccess_t *sockets_captured, int protocol, int *tot
     request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
     request.req.idiag_states = ~0;
-    request.req.sdiag_family = AF_INET;
+    request.req.sdiag_family = family;
     request.req.sdiag_protocol = protocol;
 
     struct sockaddr_nl kernel = {0};
@@ -206,6 +207,7 @@ int discover_sockets(socket_proccess_t *sockets_captured, int protocol, int *tot
 parse:
     struct nlmsghdr *nlh;
     int remaining = len;
+    int sa_family = (family == AF_INET6) ? AF_INET6 : AF_INET;
 
     for (nlh = (struct nlmsghdr *)buffer; NLMSG_OK(nlh, remaining); nlh = NLMSG_NEXT(nlh, remaining)) {
         if (nlh->nlmsg_type == NLMSG_DONE) break;
@@ -216,22 +218,23 @@ parse:
 
         struct inet_diag_msg *diag = (struct inet_diag_msg *)NLMSG_DATA(nlh);
 
-        char src[INET_ADDRSTRLEN];
-        char dst[INET_ADDRSTRLEN];
+        char src[INET6_ADDRSTRLEN];
+        char dst[INET6_ADDRSTRLEN];
 
-        inet_ntop(AF_INET, diag->id.idiag_src, src, sizeof(src));
-        inet_ntop(AF_INET, diag->id.idiag_dst, dst, sizeof(dst));
+        inet_ntop(sa_family, diag->id.idiag_src, src, sizeof(src));
+        inet_ntop(sa_family, diag->id.idiag_dst, dst, sizeof(dst));
 
         int sport = ntohs(diag->id.idiag_sport);
         int dport = ntohs(diag->id.idiag_dport);
 
         memset(&sockets_captured[*total_sockets_found], 0, sizeof(socket_proccess_t));
 
-        strncpy(sockets_captured[*total_sockets_found].src_ip, src, INET_ADDRSTRLEN);
+        strncpy(sockets_captured[*total_sockets_found].src_ip, src, INET6_ADDRSTRLEN);
         sockets_captured[*total_sockets_found].src_port = sport;
-        strncpy(sockets_captured[*total_sockets_found].end_ip, dst, INET_ADDRSTRLEN);
+        strncpy(sockets_captured[*total_sockets_found].end_ip, dst, INET6_ADDRSTRLEN);
         sockets_captured[*total_sockets_found].end_port = dport;
         sockets_captured[*total_sockets_found].protocol = protocol;
+        sockets_captured[*total_sockets_found].family = sa_family;
 
         find_pids_for_inode(diag->idiag_inode, sockets_captured, *total_sockets_found);
         (*total_sockets_found)++;

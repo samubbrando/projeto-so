@@ -43,6 +43,14 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
         char comm[16];
     };
 
+    struct proc_key zero_key = {0};
+    struct proc_key next_key = {0};
+    while (bpf_map__get_next_key(skel->maps.proc_rule_map, &zero_key, &next_key, sizeof(struct proc_key)) == 0)
+    {
+        bpf_map__delete_elem(skel->maps.proc_rule_map, &next_key, sizeof(struct proc_key), 0);
+        memcpy(&zero_key, &next_key, sizeof(struct proc_key));
+    }
+
     for (int i = 0; i < n_sockets; i++)
     {
         if (sockets[i].pid[0] == '\0') continue;

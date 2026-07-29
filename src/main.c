@@ -308,19 +308,28 @@ int main(int argc, char *argv[])
             break;
         }
 
-        int n_sockets; 
-        discover_sockets(sockets, 6, &n_sockets);
+        int n_sockets = 0;
+        discover_sockets(sockets, 6, AF_INET, &n_sockets);
         int n_tcp = read_socket_data(hists_map, sockets, n_sockets);
         if (n_tcp == 0 && n_sockets > 0)
             fprintf(stderr, "[WARN] 0/%d TCP sockets matched\n", n_sockets);
 
-        int n_udp_raw; 
-        discover_sockets(sockets + n_sockets, 17, &n_udp_raw);
+        int n_udp_raw = 0;
+        discover_sockets(sockets + n_sockets, 17, AF_INET, &n_udp_raw);
         int n_udp = read_udp_socket_data(udp_map, sockets + n_sockets, n_udp_raw);
         if (n_udp == 0 && n_udp_raw > 0)
             fprintf(stderr, "[WARN] 0/%d UDP sockets matched\n", n_udp_raw);
 
         n_sockets += n_udp_raw;
+
+        int n_tcp6_raw = 0;
+        discover_sockets(sockets + n_sockets, 6, AF_INET6, &n_tcp6_raw);
+        n_sockets += n_tcp6_raw;
+
+        int n_udp6_raw = 0;
+        discover_sockets(sockets + n_sockets, 17, AF_INET6, &n_udp6_raw);
+        n_sockets += n_udp6_raw;
+
         int n_agg = aggregate_by_pid(sockets, n_sockets, agg);
 
         uint64_t now = now_ns();

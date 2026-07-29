@@ -58,3 +58,45 @@ int cg_sendmsg4(struct bpf_sock_addr *ctx)
     return 1;
 }
 
+SEC("cgroup/connect6")
+int cg_connect6(struct bpf_sock_addr *ctx)
+{
+    struct proc_key pk = {0};
+    bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
+
+    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    if (info) {
+        if (info->action == BLOCK) return 0;
+        return 1;
+    }
+
+    struct proc_key wc = { .comm = "*" };
+    info = bpf_map_lookup_elem(&proc_rule_map, &wc);
+    if (info) {
+        if (info->action == BLOCK) return 0;
+    }
+
+    return 1;
+}
+
+SEC("cgroup/sendmsg6")
+int cg_sendmsg6(struct bpf_sock_addr *ctx)
+{
+    struct proc_key pk = {0};
+    bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
+
+    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    if (info) {
+        if (info->action == BLOCK) return 0;
+        return 1;
+    }
+
+    struct proc_key wc = { .comm = "*" };
+    info = bpf_map_lookup_elem(&proc_rule_map, &wc);
+    if (info) {
+        if (info->action == BLOCK) return 0;
+    }
+
+    return 1;
+}
+
