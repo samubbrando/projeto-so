@@ -26,15 +26,8 @@ void orchestrator_apply(
     struct xdp_bpf *xdp, struct tc_bpf *tc,
     unsigned long long capacity_bps, uint64_t now_ns)
 {
-    clear_bpf_map(xdp->maps.blocklist_map, sizeof(__u32));
-    clear_bpf_map(xdp->maps.ingress_buckets, sizeof(__u32));
-    clear_bpf_map(tc->maps.flow_info_map, sizeof(struct flow_key));
-    clear_bpf_map(tc->maps.egress_buckets, sizeof(struct flow_key));
-
-    clear_bpf_map(xdp->maps.blocklist_map_v6, sizeof(struct ip_key_v6));
-    clear_bpf_map(xdp->maps.ingress_buckets_v6, sizeof(struct ip_key_v6));
-    clear_bpf_map(tc->maps.flow_info_map_v6, sizeof(struct flow_key_v6));
-    clear_bpf_map(tc->maps.egress_buckets_v6, sizeof(struct flow_key_v6));
+    n_cur_fk = 0;
+    n_cur_fk6 = 0;
 
     for (int i = 0; i < n_sockets; i++)
     {
@@ -66,6 +59,10 @@ void orchestrator_apply(
                 .dst_port = (unsigned short)sockets[i].end_port,
                 .protocol = sockets[i].protocol,
             };
+
+            if (n_cur_fk < MAX_SOCKETS)
+                cur_fk[n_cur_fk++] = fk;
+
             bpf_map__update_elem(tc->maps.flow_info_map,
                                  &fk, sizeof(fk), &fi, sizeof(fi), BPF_ANY);
 
@@ -88,7 +85,7 @@ void orchestrator_apply(
                 .rate_bps = rate_bps,
             };
             bpf_map__update_elem(xdp->maps.blocklist_map,
-                                 &dst_ip, sizeof(dst_ip), &be, sizeof(be), BPF_ANY);
+                                 &fk, sizeof(fk), &be, sizeof(be), BPF_ANY);
 
             if (rule->action == ALLOW)
             {
@@ -100,7 +97,7 @@ void orchestrator_apply(
                     .last_ns = now_ns,
                 };
                 bpf_map__update_elem(xdp->maps.ingress_buckets,
-                                     &dst_ip, sizeof(dst_ip), &rb, sizeof(rb), BPF_ANY);
+                                     &fk, sizeof(fk), &rb, sizeof(rb), BPF_ANY);
             }
         }
         else
@@ -115,6 +112,9 @@ void orchestrator_apply(
             fk6.src_port = (unsigned short)sockets[i].src_port;
             fk6.dst_port = (unsigned short)sockets[i].end_port;
             fk6.protocol = sockets[i].protocol;
+
+            if (n_cur_fk6 < MAX_SOCKETS)
+                cur_fk6[n_cur_fk6++] = fk;
 
             bpf_map__update_elem(tc->maps.flow_info_map_v6,
                                  &fk6, sizeof(fk6), &fi, sizeof(fi), BPF_ANY);
@@ -137,10 +137,8 @@ void orchestrator_apply(
                 .ingress_strategy = rule->ingress_strategy,
                 .rate_bps = rate_bps,
             };
-            struct ip_key_v6 ik6;
-            memcpy(ik6.addr, dst_ip6.s6_addr, 16);
             bpf_map__update_elem(xdp->maps.blocklist_map_v6,
-                                 &ik6, sizeof(ik6), &be, sizeof(be), BPF_ANY);
+                                 &fk6, sizeof(fk6), &be, sizeof(be), BPF_ANY);
 
             if (rule->action == ALLOW)
             {
@@ -152,23 +150,93 @@ void orchestrator_apply(
                     .last_ns = now_ns,
                 };
                 bpf_map__update_elem(xdp->maps.ingress_buckets_v6,
-                                     &ik6, sizeof(ik6), &rb, sizeof(rb), BPF_ANY);
+                                     &fk6, sizeof(fk6), &rb, sizeof(rb), BPF_ANY);
             }
         }
     }
+
+    remove_unecessary_key_v4(xdp, tc);
+    remove_unecessary_key_v6(xdp, tc);
+
+    memcpy(prev_fk, cur_fk, sizeof(struct flow_key) * n_cur_fk);
+    n_prev_fk = n_cur_fk;
+    n_cur_fk = 0;
+    memcpy(prev_fk6, cur_fk6, sizeof(struct flow_key) * n_cur_fk6);
+    n_prev_fk6 = n_cur_fk6;
+    n_cur_fk6 = 0;
+}
+
+int remove_unecessary_key_v4(struct xdp_bpf *xdp, struct tc_bpf *tc)
+{
+    for (int i = 0; i < n_prev_fk; i++)
+    {
+        int found = 0;
+        for (int j = 0; j < n_cur_fk; j++)
+        {
+            if (memcmp(&prev_fk[i], &cur_fk[j], sizeof(struct flow_key)) == 0)
+            {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found)
+            delete_index_v4(xdp, tc, i);
+    }
+}
+
+int remove_unecessary_key_v6(struct xdp_bpf *xdp, struct tc_bpf *tc)
+{
+    for (int i = 0; i < n_prev_fk6; i++)
+    {
+        int found = 0;
+        for (int j = 0; j < n_cur_fk6; j++)
+        {
+            if (memcmp(&prev_fk6[i], &cur_fk6[j], sizeof(struct flow_key_v6)) == 0)
+            {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found)
+            delete_index_v6(xdp, tc, i);
+    }
+}
+
+void delete_index_v6(struct xdp_bpf *xdp, struct tc_bpf *tc, int index)
+{
+    bpf_map__delete_elem(xdp->maps.blocklist_map_v6, &prev_fk6[index], sizeof(struct flow_key_v6), 0);
+    bpf_map__delete_elem(xdp->maps.ingress_buckets_v6, &prev_fk6[index], sizeof(struct flow_key_v6), 0);
+    bpf_map__delete_elem(tc->maps.flow_info_map_v6, &prev_fk6[index], sizeof(struct flow_key_v6), 0);
+    bpf_map__delete_elem(tc->maps.egress_buckets_v6, &prev_fk6[index], sizeof(struct flow_key_v6), 0);
+}
+
+void delete_index_v4(struct xdp_bpf *xdp, struct tc_bpf *tc, int index)
+{
+    bpf_map__delete_elem(xdp->maps.blocklist_map, &prev_fk6[index], sizeof(struct flow_key), 0);
+    bpf_map__delete_elem(xdp->maps.ingress_buckets, &prev_fk6[index], sizeof(struct flow_key), 0);
+    bpf_map__delete_elem(tc->maps.flow_info_map, &prev_fk6[index], sizeof(struct flow_key), 0);
+    bpf_map__delete_elem(tc->maps.egress_buckets, &prev_fk6[index], sizeof(struct flow_key), 0);
 }
 
 void orchestrator_cleanup_maps(struct xdp_bpf *xdp, struct tc_bpf *tc)
 {
-    clear_bpf_map(xdp->maps.blocklist_map, sizeof(__u32));
-    clear_bpf_map(xdp->maps.ingress_buckets, sizeof(__u32));
+    clear_bpf_map(xdp->maps.blocklist_map, sizeof(struct flow_key));
+    clear_bpf_map(xdp->maps.ingress_buckets, sizeof(struct flow_key));
     clear_bpf_map(tc->maps.flow_info_map, sizeof(struct flow_key));
     clear_bpf_map(tc->maps.egress_buckets, sizeof(struct flow_key));
 
-    clear_bpf_map(xdp->maps.blocklist_map_v6, sizeof(struct ip_key_v6));
-    clear_bpf_map(xdp->maps.ingress_buckets_v6, sizeof(struct ip_key_v6));
+    clear_bpf_map(xdp->maps.blocklist_map_v6, sizeof(struct flow_key_v6));
+    clear_bpf_map(xdp->maps.ingress_buckets_v6, sizeof(struct flow_key_v6));
     clear_bpf_map(tc->maps.flow_info_map_v6, sizeof(struct flow_key_v6));
     clear_bpf_map(tc->maps.egress_buckets_v6, sizeof(struct flow_key_v6));
 }
+
+static struct flow_key prev_fk[MAX_SOCKETS], cur_fk[MAX_SOCKETS];
+static int n_prev_fk, n_cur_fk;
+
+static struct flow_key_v6 prev_fk6[MAX_SOCKETS], cur_fk6[MAX_SOCKETS];
+static int n_prev_fk6, n_cur_fk6;
 
 #endif

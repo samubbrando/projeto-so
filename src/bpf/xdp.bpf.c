@@ -29,7 +29,7 @@ struct
 {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
-    __type(key, __u32);
+    __type(key, struct flow_key);
     __type(value, struct block_entry);
 } blocklist_map SEC(".maps");
 
@@ -37,7 +37,7 @@ struct
 {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
-    __type(key, __u32);
+    __type(key, struct flow_key);
     __type(value, struct rate_bucket);
 } ingress_buckets SEC(".maps");
 
@@ -45,7 +45,7 @@ struct
 {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
-    __type(key, struct ip_key_v6);
+    __type(key, struct flow_key_v6);
     __type(value, struct block_entry);
 } blocklist_map_v6 SEC(".maps");
 
@@ -53,7 +53,7 @@ struct
 {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
-    __type(key, struct ip_key_v6);
+    __type(key, struct flow_key_v6);
     __type(value, struct rate_bucket);
 } ingress_buckets_v6 SEC(".maps");
 
@@ -84,15 +84,33 @@ int xdp_ingress(struct xdp_md *ctx)
         if ((void *)(iph + 1) > data_end)
             return XDP_PASS;
 
-        __u32 saddr = iph->saddr;
-        struct block_entry *entry = bpf_map_lookup_elem(&blocklist_map, &saddr);
-        if (!entry)
+        struct flow_key key = {
+            .src_ip = iph->daddr,
+            .dst_ip = iph->saddr,
+            .protocol = iph->protocol,
+        };
+
+        void *l4 = data + sizeof(struct ethhdr) + (iph->ihl * 4);
+        if (iph->protocol == IPPROTO_TCP) {
+            if (!parse_transport(l4, data_end, &key, NULL, 0)) return XDP_PASS;
+        } else if (iph->protocol == IPPROTO_UDP) {
+            if (!parse_udp(l4, data_end, &key, NULL, 0)) return XDP_PASS;
+        } else {
             return XDP_PASS;
+        }
+
+        unsigned short tmp = key.src_port;
+        key.src_port = key.dst_port;
+        key.dst_port = tmp;
+
+        struct block_entry *entry = bpf_map_lookup_elem(&blocklist_map, &key);
+        if (!entry)
+            return XDP_DROP;
 
         if (entry->action == BLOCK)
             return XDP_DROP;
 
-        struct rate_bucket *bucket = bpf_map_lookup_elem(&ingress_buckets, &saddr);
+        struct rate_bucket *bucket = bpf_map_lookup_elem(&ingress_buckets, &key);
         if (!bucket)
             return XDP_PASS;
 
@@ -135,17 +153,61 @@ int xdp_ingress(struct xdp_md *ctx)
         if ((void *)(ip6h + 1) > data_end)
             return XDP_PASS;
 
-        struct ip_key_v6 saddr6 = {0};
-        __builtin_memcpy(saddr6.addr, ip6h->saddr.in6_u.u6_addr32, 16);
+        struct flow_key_v6 key6 = {0};
+        __builtin_memcpy(key6.src_ip, ip6h->daddr.in6_u.u6_addr8, 16);
+        __builtin_memcpy(key6.dst_ip, ip6h->saddr.in6_u.u6_addr8, 16);
+        key6.protocol = ip6h->nexthdr;
 
-        struct block_entry *entry = bpf_map_lookup_elem(&blocklist_map_v6, &saddr6);
-        if (!entry)
+        unsigned char nexthdr = ip6h->nexthdr;
+        void *l6 = data + sizeof(struct ethhdr) + sizeof(struct ipv6hdr);
+
+#pragma unroll
+        for (int i = 0; i < 4; i++)
+        {
+            if (nexthdr == IPPROTO_TCP) {
+                if (!parse_transport(l6, data_end, NULL, &key6, 1)) return XDP_PASS;
+                break;
+            }
+            if (nexthdr == IPPROTO_UDP) {
+                if (!parse_udp(l6, data_end, NULL, &key6, 1)) return XDP_PASS;
+                break;
+            }
+            if (nexthdr == IPPROTO_HOPOPTS || nexthdr == IPPROTO_ROUTING ||
+                nexthdr == IPPROTO_DSTOPTS || nexthdr == IPPROTO_FRAGMENT ||
+                nexthdr == IPPROTO_AH) {
+                struct ipv6_opt_hdr *opthdr = l6;
+                if ((void *)(opthdr + 1) > data_end) return XDP_PASS;
+                nexthdr = opthdr->nexthdr;
+
+                if (nexthdr == IPPROTO_FRAGMENT) {
+                    struct frag_hdr *fraghdr = l6;
+                    if ((void *)(fraghdr + 1) > data_end) return XDP_PASS;
+                    l6 = (void *)(fraghdr + 1);
+                    key6.protocol = fraghdr->nexthdr;
+                    return XDP_PASS;
+                }
+                unsigned int hdrlen = (opthdr->hdrlen + 1) * 8;
+                l6 += hdrlen;
+                continue;
+            }
             return XDP_PASS;
+        }
+
+        if (key6.protocol != IPPROTO_TCP && key6.protocol != IPPROTO_UDP)
+            return XDP_PASS;
+
+        unsigned short tmp = key6.src_port;
+        key6.src_port = key6.dst_port;
+        key6.dst_port = tmp;
+
+        struct block_entry *entry = bpf_map_lookup_elem(&blocklist_map_v6, &key6);
+        if (!entry)
+            return XDP_DROP;
 
         if (entry->action == BLOCK)
             return XDP_DROP;
 
-        struct rate_bucket *bucket = bpf_map_lookup_elem(&ingress_buckets_v6, &saddr6);
+        struct rate_bucket *bucket = bpf_map_lookup_elem(&ingress_buckets_v6, &key6);
         if (!bucket)
             return XDP_PASS;
 

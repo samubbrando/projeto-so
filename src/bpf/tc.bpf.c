@@ -59,45 +59,6 @@ struct
     __type(value, struct rate_bucket);
 } egress_buckets_v6 SEC(".maps");
 
-static __always_inline int parse_transport(void *data, void *data_end,
-                                            struct flow_key *key,
-                                            struct flow_key_v6 *key6,
-                                            int is_v6)
-{
-    struct tcphdr *tcph = data;
-    if ((void *)(tcph + 1) > data_end)
-        return 0;
-    unsigned short src = bpf_ntohs(tcph->source);
-    unsigned short dst = bpf_ntohs(tcph->dest);
-    if (is_v6) {
-        key6->src_port = src;
-        key6->dst_port = dst;
-    } else {
-        key->src_port = src;
-        key->dst_port = dst;
-    }
-    return 1;
-}
-
-static __always_inline int parse_udp(void *data, void *data_end,
-                                      struct flow_key *key,
-                                      struct flow_key_v6 *key6,
-                                      int is_v6)
-{
-    struct udphdr *udph = data;
-    if ((void *)(udph + 1) > data_end)
-        return 0;
-    unsigned short src = bpf_ntohs(udph->source);
-    unsigned short dst = bpf_ntohs(udph->dest);
-    if (is_v6) {
-        key6->src_port = src;
-        key6->dst_port = dst;
-    } else {
-        key->src_port = src;
-        key->dst_port = dst;
-    }
-    return 1;
-}
 
 SEC("tc/egress")
 int tc_egress(struct __sk_buff *skb)
@@ -142,7 +103,7 @@ int tc_egress(struct __sk_buff *skb)
         if (!info) {
             bpf_printk("TC: flow NOT FOUND proto=%d src_port=%d dst_port=%d",
                        key.protocol, key.src_port, key.dst_port);
-            return TC_ACT_OK;
+            return TC_ACT_SHOT;
         }
 
         if (info->action == BLOCK)
@@ -218,7 +179,7 @@ int tc_egress(struct __sk_buff *skb)
         if (!info) {
             bpf_printk("TC: flow_v6 NOT FOUND proto=%d src_port=%d dst_port=%d",
                        key_v6.protocol, key_v6.src_port, key_v6.dst_port);
-            return TC_ACT_OK;
+            return TC_ACT_SHOT;
         }
 
         if (info->action == BLOCK)
