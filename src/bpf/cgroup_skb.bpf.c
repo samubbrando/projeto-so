@@ -3,6 +3,9 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
+#define BLOCK_SIGNAL 0
+#define ALLOW_SIGNAL 1
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct proc_key {
@@ -24,17 +27,17 @@ int cg_connect4(struct bpf_sock_addr *ctx)
 
     struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
-        if (info->action == BLOCK) return 0;
-        return 1;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
+        return ALLOW_SIGNAL;
     }
 
     struct proc_key wc = { .comm = "*" };
     info = bpf_map_lookup_elem(&proc_rule_map, &wc);
     if (info) {
-        if (info->action == BLOCK) return 0;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
     }
 
-    return 1;
+    return BLOCK_SIGNAL;
 }
 
 SEC("cgroup/sendmsg4")
@@ -45,17 +48,17 @@ int cg_sendmsg4(struct bpf_sock_addr *ctx)
 
     struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
-        if (info->action == BLOCK) return 0;
-        return 1;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
+        return ALLOW_SIGNAL;
     }
 
     struct proc_key wc = { .comm = "*" };
     info = bpf_map_lookup_elem(&proc_rule_map, &wc);
     if (info) {
-        if (info->action == BLOCK) return 0;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
     }
 
-    return 1;
+    return BLOCK_SIGNAL;
 }
 
 SEC("cgroup/connect6")
@@ -66,17 +69,17 @@ int cg_connect6(struct bpf_sock_addr *ctx)
 
     struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
-        if (info->action == BLOCK) return 0;
-        return 1;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
+        return ALLOW_SIGNAL;
     }
 
     struct proc_key wc = { .comm = "*" };
     info = bpf_map_lookup_elem(&proc_rule_map, &wc);
     if (info) {
-        if (info->action == BLOCK) return 0;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
     }
 
-    return 1;
+    return BLOCK_SIGNAL;
 }
 
 SEC("cgroup/sendmsg6")
@@ -87,16 +90,16 @@ int cg_sendmsg6(struct bpf_sock_addr *ctx)
 
     struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
-        if (info->action == BLOCK) return 0;
-        return 1;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
+        return ALLOW_SIGNAL;
     }
 
     struct proc_key wc = { .comm = "*" };
     info = bpf_map_lookup_elem(&proc_rule_map, &wc);
     if (info) {
-        if (info->action == BLOCK) return 0;
+        if (info->action == BLOCK) return BLOCK_SIGNAL;
     }
 
-    return 1;
+    return BLOCK_SIGNAL;
 }
 

@@ -5,6 +5,7 @@
 #include <bpf/bpf_endian.h>
 
 #define TC_ACT_OK 0
+#define TC_ACT_SHOT 1
 #define ETH_P_IP 0x0800
 #define ETH_P_IPV6 0x86DD
 #define IPPROTO_TCP 6
@@ -15,7 +16,6 @@
 #define IPPROTO_DSTOPTS 60
 #define IPPROTO_ESP 50
 #define IPPROTO_AH 51
-#define TC_ACT_SHOT 1
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 

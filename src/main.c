@@ -33,7 +33,7 @@ static uint64_t now_ns(void)
     return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
-static int read_socket_data(struct bpf_map *hists_map,
+static int read_socket_data(struct bpf_map *tcp_map,
                             socket_proccess_t *sockets, int n_sockets)
 {
     int count = 0;
@@ -43,20 +43,22 @@ static int read_socket_data(struct bpf_map *hists_map,
             continue;
 
         struct conn_key ck = {0};
-        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1)
-            continue;
         ck.src_port = sockets[i].src_port;
-        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1)
-            continue;
         ck.dst_port = sockets[i].end_port;
         ck.protocol = 6;
+        ck.family = sockets[i].family;
+
+        if (inet_pton(sockets[i].family, sockets[i].src_ip, ck.src_ip) != 1)
+            continue;
+        if (inet_pton(sockets[i].family, sockets[i].end_ip, ck.dst_ip) != 1)
+            continue;
 
         struct hist val;
-        if (bpf_map__lookup_elem(hists_map, &ck, sizeof(ck),
+        if (bpf_map__lookup_elem(tcp_map, &ck, sizeof(ck),
                                  &val, sizeof(val), 0) == 0)
         {
-            sockets[i].tx_bytes = val.sent;
-            sockets[i].rx_bytes = val.received;
+            sockets[i].tx_bytes = val.tx_bytes;
+            sockets[i].rx_bytes = val.rx_bytes;
             sockets[i].rtt = val.rtt;
             count++;
         }
@@ -74,20 +76,23 @@ static int read_udp_socket_data(struct bpf_map *udp_map,
             continue;
 
         struct conn_key ck = {0};
-        if (inet_pton(AF_INET, sockets[i].src_ip, &ck.src_ip) != 1)
-            continue;
         ck.src_port = sockets[i].src_port;
-        if (inet_pton(AF_INET, sockets[i].end_ip, &ck.dst_ip) != 1)
-            continue;
         ck.dst_port = sockets[i].end_port;
         ck.protocol = 17;
+        ck.family = sockets[i].family;
 
-        struct udp_stat val;
+        if (inet_pton(sockets[i].family, sockets[i].src_ip, ck.src_ip) != 1)
+            continue;
+        if (inet_pton(sockets[i].family, sockets[i].end_ip, ck.dst_ip) != 1)
+            continue;
+
+        struct hist val;
         if (bpf_map__lookup_elem(udp_map, &ck, sizeof(ck),
                                  &val, sizeof(val), 0) == 0)
         {
             sockets[i].tx_bytes = val.tx_bytes;
             sockets[i].rx_bytes = val.rx_bytes;
+            sockets[i].rtt = val.rtt;
             count++;
         }
     }
@@ -237,7 +242,8 @@ int main(int argc, char *argv[])
         free(iface);
         return 1;
     }
-    if (attach_cgroup_skb_bpf(cg_skel)) {
+    if (attach_cgroup_skb_bpf(cg_skel))
+    {
         cleanup_cgroup_skb_bpf(cg_skel);
         cleanup_rtt(rtt_skel);
         free(iface);
@@ -248,7 +254,7 @@ int main(int argc, char *argv[])
     speed_estimator_init(&est, iface);
     unsigned long long cap = speed_estimator_capacity(&est);
 
-    struct bpf_map *hists_map = rtt_skel->maps.hists;
+    struct bpf_map *tcp_map = rtt_skel->maps.tcp_hists;
     struct bpf_map *udp_map = rtt_skel->maps.udp_hists;
     struct proc_prev *proc_prev = calloc(MAX_PROCCESSES, sizeof(struct proc_prev));
     int n_proc_prev = 0;
@@ -308,11 +314,17 @@ int main(int argc, char *argv[])
             break;
         }
 
+        // discover_sockets writes over -> add to a aux variable and then
+        // add to n_sockets
         int n_sockets = 0;
-        discover_sockets(sockets, 6, AF_INET, &n_sockets);
-        int n_tcp = read_socket_data(hists_map, sockets, n_sockets);
-        if (n_tcp == 0 && n_sockets > 0)
+
+        int n_tcp_raw = 0;
+        discover_sockets(sockets, 6, AF_INET, &n_tcp_raw);
+        int n_tcp = read_socket_data(tcp_map, sockets, n_tcp_raw);
+        if (n_tcp == 0 && n_tcp_raw > 0)
             fprintf(stderr, "[WARN] 0/%d TCP sockets matched\n", n_sockets);
+
+        n_sockets += n_tcp_raw;
 
         int n_udp_raw = 0;
         discover_sockets(sockets + n_sockets, 17, AF_INET, &n_udp_raw);
@@ -324,10 +336,18 @@ int main(int argc, char *argv[])
 
         int n_tcp6_raw = 0;
         discover_sockets(sockets + n_sockets, 6, AF_INET6, &n_tcp6_raw);
+        int n_tcp_6 = read_socket_data(tcp_map, sockets + n_sockets, n_tcp6_raw);
+        if (n_tcp_6 == 0 && n_tcp6_raw > 0)
+            fprintf(stderr, "[WARN] 0/%d TCP-6 sockets matched\n", n_tcp6_raw);
+
         n_sockets += n_tcp6_raw;
 
         int n_udp6_raw = 0;
         discover_sockets(sockets + n_sockets, 17, AF_INET6, &n_udp6_raw);
+        int n_udp_6 = read_udp_socket_data(udp_map, sockets + n_sockets, n_udp6_raw);
+        if (n_udp_6 == 0 && n_udp6_raw > 0)
+            fprintf(stderr, "[WARN] 0/%d UDP-6 sockets matched\n", n_udp6_raw);
+        
         n_sockets += n_udp6_raw;
 
         int n_agg = aggregate_by_pid(sockets, n_sockets, agg);
@@ -361,10 +381,10 @@ int main(int argc, char *argv[])
     free(iface);
     cleanup_cgroup_skb_bpf(cg_skel);
     cleanup_rtt(rtt_skel);
-    
+
     orchestrator_cleanup_maps(xdp_skel, tc_skel);
     cleanup_tc(tc_skel);
     cleanup_xdp(xdp_skel);
-    
+
     return 0;
 }
