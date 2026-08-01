@@ -68,10 +68,5 @@ struct block_entry
     unsigned int rate_bps;
 };
 
-struct ip_key_v6
-{
-    unsigned int addr[4];
-};
-
 
 #endif

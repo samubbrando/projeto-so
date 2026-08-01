@@ -47,26 +47,26 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
                                socket_proccess_t *sockets, int n_sockets,
                                const struct rule *rules, int n_rules)
 {
-    n_cur_comms = 0;
     struct proc_key
     {
         char comm[16];
     };
 
+    n_cur_comms = 0;
+
     for (int i = 0; i < n_sockets; i++)
     {
-        struct proc_key pk = {0};
-        strncpy(pk.comm, sockets[i].name, sizeof(pk.comm) - 1);
+        if (sockets[i].name[0] == '\0')
+            continue;
 
         if (n_cur_comms < MAX_TRACKED_COMMS)
         {
-            memcpy(cur_comms[n_cur_comms], pk.comm, 16);
+            strncpy(cur_comms[n_cur_comms], sockets[i].name, 15);
+            cur_comms[n_cur_comms][15] = '\0';
             n_cur_comms++;
         }
 
         if (sockets[i].pid[0] == '\0')
-            continue;
-        if (sockets[i].name[0] == '\0')
             continue;
 
         const struct rule *rule = match_rule(rules, n_rules, sockets[i].name);
@@ -88,83 +88,18 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
 
     for (int i = 0; i < n_rules; i++)
     {
-        if (strcmp(rules[i].comm, "*") == 0)
-        {
-            struct flow_info fi = {
-                .action = rules[i].action,
-                .egress_strategy = rules[i].egress_strategy,
-                .ingress_strategy = rules[i].ingress_strategy,
-            };
-            struct proc_key pk = {.comm = "*"};
-            bpf_map__update_elem(skel->maps.proc_rule_map,
-                                 &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY);
-            break;
-        }
-    }
-
-    for (int i = 0; i < n_prev_comms; i++)
-    {
-        if (memcmp(prev_comms[i], "*", 2) == 0)
-            continue;
-
-        int found = 0;
-        for (int j = 0; j < n_cur_comms; j++)
-        {
-            if (memcmp(prev_comms[i], cur_comms[j], 16 * sizeof(prev_comms[0])) == 0)
-            {
-                found = 1;
-                break;
-            }
-        }
-
-        if (!found)
-        {
-            struct proc_key pk = {0};
-            memcpy(pk.comm, prev_comms[i], 16 * sizeof(prev_comms[0]));
-        }
-    }
-
-    for (int i = 0; i < n_sockets; i++)
-    {
-        if (sockets[i].pid[0] == '\0')
-            continue;
-        if (sockets[i].name[0] == '\0')
-            continue;
-
-        const struct rule *rule = match_rule(rules, n_rules, sockets[i].name);
-        if (!rule)
+        if (strcmp(rules[i].comm, "*") != 0)
             continue;
 
         struct flow_info fi = {
-            .action = rule->action,
-            .egress_strategy = rule->egress_strategy,
-            .ingress_strategy = rule->ingress_strategy};
-
-        struct proc_key pk = {0};
-        strncpy(pk.comm, sockets[i].name, sizeof(pk.comm) - 1);
-        if (n_cur_comms < MAX_TRACKED_COMMS)
-        {
-            memcpy(cur_comms[n_cur_comms], pk.comm, 16);
-            n_cur_comms++;
-        }
-
-        if (bpf_map__update_elem(skel->maps.proc_rule_map,
-                                 &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY))
-            fprintf(stderr, "poc_rule_map update failed for %s\n", sockets[i].name);
-    }
-
-    for (int i = 0; i < n_rules; i++)
-    {
-        if (memcmp(prev_comms[i], "*", 2) == 0)
-        {
-            struct flow_info fi = {
-                .action = rules[i].action,
-                .egress_strategy = rules[i].egress_strategy,
-                .ingress_strategy = rules[i].ingress_strategy};
-            struct proc_key pk = {.comm = "*"};
-            bpf_map__update_elem(skel->maps.proc_rule_map,
-                                 &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY);
-        }
+            .action = rules[i].action,
+            .egress_strategy = rules[i].egress_strategy,
+            .ingress_strategy = rules[i].ingress_strategy,
+        };
+        struct proc_key pk = {.comm = "*"};
+        bpf_map__update_elem(skel->maps.proc_rule_map,
+                             &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY);
+        break;
     }
 
     for (int i = 0; i < n_prev_comms; i++)
@@ -181,17 +116,19 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
                 break;
             }
         }
-        
-        if (!found) 
+
+        if (!found)
         {
             struct proc_key pk = {0};
             memcpy(pk.comm, prev_comms[i], 16);
             bpf_map__delete_elem(skel->maps.proc_rule_map, &pk, sizeof(pk), 0);
         }
     }
+
     n_prev_comms = n_cur_comms;
     n_cur_comms = 0;
 }
+
 
 static void cleanup_cgroup_skb_bpf(struct cgroup_skb_bpf *skel)
 {
