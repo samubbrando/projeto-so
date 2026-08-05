@@ -16,7 +16,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 256);
     __type(key, struct proc_key);
-    __type(value, struct flow_info);
+    __type(value, struct flow_policy);
 } proc_rule_map SEC(".maps");
 
 SEC("cgroup/connect4")
@@ -25,7 +25,7 @@ int cg_connect4(struct bpf_sock_addr *ctx)
     struct proc_key pk = {0};
     bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
 
-    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    struct flow_policy *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
         if (info->action == BLOCK) return BLOCK_SIGNAL;
         return ALLOW_SIGNAL;
@@ -46,7 +46,7 @@ int cg_sendmsg4(struct bpf_sock_addr *ctx)
     struct proc_key pk = {0};
     bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
 
-    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    struct flow_policy *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
         if (info->action == BLOCK) return BLOCK_SIGNAL;
         return ALLOW_SIGNAL;
@@ -67,7 +67,7 @@ int cg_connect6(struct bpf_sock_addr *ctx)
     struct proc_key pk = {0};
     bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
 
-    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    struct flow_policy *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
         if (info->action == BLOCK) return BLOCK_SIGNAL;
         return ALLOW_SIGNAL;
@@ -88,7 +88,7 @@ int cg_sendmsg6(struct bpf_sock_addr *ctx)
     struct proc_key pk = {0};
     bpf_get_current_comm(&pk.comm, sizeof(pk.comm));
 
-    struct flow_info *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
+    struct flow_policy *info = bpf_map_lookup_elem(&proc_rule_map, &pk);
     if (info) {
         if (info->action == BLOCK) return BLOCK_SIGNAL;
         return ALLOW_SIGNAL;

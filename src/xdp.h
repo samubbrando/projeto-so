@@ -58,14 +58,14 @@ static void cleanup_xdp(struct xdp_bpf *skel)
     xdp_bpf__destroy(skel);
 }
 
-static int read_xdp_ingress(struct xdp_bpf *skel, struct ingress_stats *stats)
+static int read_xdp_ingress(struct xdp_bpf *skel, struct traffic_stats *stats)
 {
     int ncpus = libbpf_num_possible_cpus();
-    struct ingress_stats percpu_stats[ncpus];
+    struct traffic_stats percpu_stats[ncpus];
     __u32 key = 0;
 
     if (bpf_map__lookup_elem(skel->maps.ingress_map, &key, sizeof(key),
-                             percpu_stats, sizeof(struct ingress_stats) * ncpus, 0) != 0)
+                             percpu_stats, sizeof(struct traffic_stats) * ncpus, 0) != 0)
     {
         fprintf(stderr, "Failed to read ingress stats from BPF map\n");
         return -1;

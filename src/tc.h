@@ -57,15 +57,15 @@ static int attach_tc_egress(struct tc_bpf *skel, const char *iface)
     return 0;
 }
 
-static int read_tc_egress(struct tc_bpf *skel, struct egress_stats *stats)
+static int read_tc_egress(struct tc_bpf *skel, struct traffic_stats *stats)
 {
     int ncpus = libbpf_num_possible_cpus();
-    struct egress_stats percpu_stats[ncpus];
+    struct traffic_stats percpu_stats[ncpus];
     __u32 key = 0;
 
     if (bpf_map__lookup_elem(skel->maps.egress_map, &key, sizeof(key),
                              percpu_stats,
-                             sizeof(struct egress_stats) * ncpus, 0) != 0)
+                             sizeof(struct traffic_stats) * ncpus, 0) != 0)
     {
         fprintf(stderr, "Failed to read egress stats from BPF map\n");
         return -1;

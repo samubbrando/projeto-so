@@ -73,15 +73,15 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
         if (!rule)
             continue;
 
-        struct flow_info fi = {
+        struct flow_policy fp = {
             .action = rule->action,
-            .egress_strategy = rule->egress_strategy,
+            .strategy = rule->egress_strategy,
         };
 
         struct proc_key pk = {0};
         strncpy(pk.comm, sockets[i].name, sizeof(pk.comm) - 1);
         if (bpf_map__update_elem(skel->maps.proc_rule_map,
-                                 &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY))
+                                 &pk, sizeof(pk), &fp, sizeof(fp), BPF_ANY))
             fprintf(stderr, "proc_rule_map update failed for %s\n", sockets[i].name);
     }
 
@@ -90,13 +90,13 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
         if (strcmp(rules[i].comm, "*") != 0)
             continue;
 
-        struct flow_info fi = {
+        struct flow_policy fp = {
             .action = rules[i].action,
-            .egress_strategy = rules[i].egress_strategy,
+            .strategy = rules[i].egress_strategy,
         };
         struct proc_key pk = {.comm = "*"};
         bpf_map__update_elem(skel->maps.proc_rule_map,
-                             &pk, sizeof(pk), &fi, sizeof(fi), BPF_ANY);
+                             &pk, sizeof(pk), &fp, sizeof(fp), BPF_ANY);
         break;
     }
 

@@ -147,8 +147,7 @@ void speed_estimator_update(struct speed_estimator *est,
                 unsigned long long test_bps = test_bytes * 8000000000ULL / test_ns;
                 est->active_test_bps = test_bps;
 
-                if (test_bytes >= EST_BURST_BYTES / 2 &&
-                    test_bytes <= (EST_BURST_BYTES * 3) / 2)
+                if (test_bytes >= EST_BURST_BYTES / 2)
                 {
                     est->samples[est->sample_head % EST_WINDOW_SIZE] = test_bps;
                     est->sample_head++;
