@@ -9,6 +9,8 @@
 #include "xdp.h"
 #include "tc.h"
 
+#define BURST_SECONDS 1
+
 static struct flow_key prev_fk[MAX_SOCKETS], cur_fk[MAX_SOCKETS];
 static int n_prev_fk, n_cur_fk;
 
@@ -80,7 +82,28 @@ void cleanup_key_v6(struct xdp_bpf *xdp, struct tc_bpf *tc)
     }
 }
 
-
+static void update_rate_bucket(struct bpf_map *map, const void *key, size_t key_size,
+                               unsigned long long rate_bps, unsigned long long burst,
+                               uint64_t now_ns)
+{
+    struct rate_bucket rb;
+    if (bpf_map__lookup_elem(map, key, key_size, &rb, sizeof(rb), 0) != 0)
+    {
+        memset(&rb, 0, sizeof(rb));
+        rb.tokens = burst;
+        rb.last_ns = now_ns;
+    }
+    else
+    {
+        if (rb.rate_bps != rate_bps)
+            rb.last_ns = now_ns;
+        if (rb.tokens > burst)
+            rb.tokens = burst;
+    }
+    rb.rate_bps = rate_bps;
+    rb.burst = burst;
+    bpf_map__update_elem(map, key, key_size, &rb, sizeof(rb), BPF_ANY);
+}
 
 void orchestrator_apply(
     const struct rule *rules, int n_rules,
@@ -100,11 +123,10 @@ void orchestrator_apply(
         if (!rule)
             continue;
 
-        unsigned int rate_bps = (unsigned int)(capacity_bps * rule->bandwidth_pct / 100);
+        unsigned long long rate_bps = capacity_bps * rule->bandwidth_pct / 100;
         struct flow_info fi = {
             .action = rule->action,
             .egress_strategy = rule->egress_strategy,
-            .ingress_strategy = rule->ingress_strategy,
             .rate_bps = rate_bps,
         };
 
@@ -130,15 +152,11 @@ void orchestrator_apply(
 
             if (rule->action == ALLOW)
             {
-                unsigned int burst = rate_bps / 2;
-                struct rate_bucket rb = {
-                    .rate_bps = rate_bps,
-                    .burst = burst,
-                    .tokens = burst,
-                    .last_ns = now_ns,
-                };
-                bpf_map__update_elem(tc->maps.egress_buckets,
-                                     &fk, sizeof(fk), &rb, sizeof(rb), BPF_ANY);
+                unsigned long long burst = rate_bps / 8;
+                update_rate_bucket(tc->maps.egress_buckets, &fk, sizeof(fk),
+                                   rate_bps, burst, now_ns);
+                update_rate_bucket(xdp->maps.ingress_buckets, &fk, sizeof(fk),
+                                   rate_bps, burst, now_ns);
             }
 
             struct block_entry be = {
@@ -148,19 +166,6 @@ void orchestrator_apply(
             };
             bpf_map__update_elem(xdp->maps.blocklist_map,
                                  &fk, sizeof(fk), &be, sizeof(be), BPF_ANY);
-
-            if (rule->action == ALLOW)
-            {
-                unsigned int burst = rate_bps / 2;
-                struct rate_bucket rb = {
-                    .rate_bps = rate_bps,
-                    .burst = burst,
-                    .tokens = burst,
-                    .last_ns = now_ns,
-                };
-                bpf_map__update_elem(xdp->maps.ingress_buckets,
-                                     &fk, sizeof(fk), &rb, sizeof(rb), BPF_ANY);
-            }
         }
         else
         {
@@ -183,15 +188,11 @@ void orchestrator_apply(
 
             if (rule->action == ALLOW)
             {
-                unsigned int burst = rate_bps / 2;
-                struct rate_bucket rb = {
-                    .rate_bps = rate_bps,
-                    .burst = burst,
-                    .tokens = burst,
-                    .last_ns = now_ns,
-                };
-                bpf_map__update_elem(tc->maps.egress_buckets_v6,
-                                     &fk6, sizeof(fk6), &rb, sizeof(rb), BPF_ANY);
+                unsigned long long burst = rate_bps / 8 / 2;
+                update_rate_bucket(tc->maps.egress_buckets_v6, &fk6, sizeof(fk6),
+                                   rate_bps, burst, now_ns);
+                update_rate_bucket(xdp->maps.ingress_buckets_v6, &fk6, sizeof(fk6),
+                                   rate_bps, burst, now_ns);
             }
 
             struct block_entry be = {
@@ -201,19 +202,6 @@ void orchestrator_apply(
             };
             bpf_map__update_elem(xdp->maps.blocklist_map_v6,
                                  &fk6, sizeof(fk6), &be, sizeof(be), BPF_ANY);
-
-            if (rule->action == ALLOW)
-            {
-                unsigned int burst = rate_bps / 2;
-                struct rate_bucket rb = {
-                    .rate_bps = rate_bps,
-                    .burst = burst,
-                    .tokens = burst,
-                    .last_ns = now_ns,
-                };
-                bpf_map__update_elem(xdp->maps.ingress_buckets_v6,
-                                     &fk6, sizeof(fk6), &rb, sizeof(rb), BPF_ANY);
-            }
         }
     }
 
@@ -228,7 +216,6 @@ void orchestrator_apply(
     n_prev_fk6 = n_cur_fk6;
     n_cur_fk6 = 0;
 }
-
 
 void orchestrator_cleanup_maps(struct xdp_bpf *xdp, struct tc_bpf *tc)
 {

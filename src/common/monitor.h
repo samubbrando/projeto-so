@@ -1,6 +1,8 @@
 #ifndef MONITOR_H
 #define MONITOR_H
 
+#define PROBE_FWMARK 0x2525
+
 struct ingress_stats
 {
     unsigned long long bytes;
@@ -18,8 +20,8 @@ struct rate_bucket
 {
     unsigned long long tokens;
     unsigned long long last_ns;
-    unsigned int rate_bps;
-    unsigned int burst;
+    unsigned long long rate_bps;
+    unsigned long long burst;
 };
 
 enum strategy
@@ -57,15 +59,14 @@ struct flow_info
 {
     unsigned char action;
     unsigned char egress_strategy;
-    unsigned char ingress_strategy;
-    unsigned int rate_bps;
+    unsigned long long rate_bps;
 };
 
 struct block_entry
 {
     unsigned char action;
     unsigned char ingress_strategy;
-    unsigned int rate_bps;
+    unsigned long long rate_bps;
 };
 
 

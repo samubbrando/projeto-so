@@ -59,12 +59,11 @@ struct
     __type(value, struct rate_bucket);
 } egress_buckets_v6 SEC(".maps");
 
-
 SEC("tc/egress")
 int tc_egress(struct __sk_buff *skb)
 {
-    __u32 zero = 0;
-    struct egress_stats *stats = bpf_map_lookup_elem(&egress_map, &zero);
+    __u32 key = 0;
+    struct egress_stats *stats = bpf_map_lookup_elem(&egress_map, &key);
     if (!stats)
         return TC_ACT_OK;
 
@@ -74,33 +73,41 @@ int tc_egress(struct __sk_buff *skb)
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
-    struct ethhdr *ethdr = data;
-    if ((void *)(ethdr + 1) > data_end)
+    if (skb->mark == PROBE_FWMARK)
         return TC_ACT_OK;
 
-    unsigned short h_proto = bpf_ntohs(ethdr->h_proto);
-    if (h_proto == ETH_P_IP)
+    unsigned short proto = bpf_ntohs(skb->protocol);
+    if (proto == ETH_P_IP)
     {
-        struct iphdr *iph = data + sizeof(struct ethhdr);
-        if ((void *)(iph + 1) > data_end) return TC_ACT_OK;
+        struct iphdr *iph = data;
+
+        if ((void *)(iph + 1) > data_end)
+            return TC_ACT_OK;
 
         struct flow_key key = {
             .src_ip = iph->saddr,
             .dst_ip = iph->daddr,
-            .protocol = iph->protocol
-        };
+            .protocol = iph->protocol};
 
-        void *l4 = data + sizeof(struct ethhdr) + (iph->ihl * 4);
-        if (iph->protocol == IPPROTO_TCP) {
-            if (!parse_transport(l4, data_end, &key, NULL, 0)) return TC_ACT_OK;
-        } else if (iph->protocol == IPPROTO_UDP) {
-            if (!parse_udp(l4, data_end, &key, NULL, 0)) return TC_ACT_OK;
-        } else {
+        void *l4 = data + (iph->ihl * 4);
+        if (iph->protocol == IPPROTO_TCP)
+        {
+            if (!parse_transport(l4, data_end, &key, NULL, 0))
+                return TC_ACT_OK;
+        }
+        else if (iph->protocol == IPPROTO_UDP)
+        {
+            if (!parse_udp(l4, data_end, &key, NULL, 0))
+                return TC_ACT_OK;
+        }
+        else
+        {
             return TC_ACT_OK;
         }
 
         struct flow_info *info = bpf_map_lookup_elem(&flow_info_map, &key);
-        if (!info) {
+        if (!info)
+        {
             bpf_printk("TC: flow NOT FOUND proto=%d src_port=%d dst_port=%d",
                        key.protocol, key.src_port, key.dst_port);
             return TC_ACT_SHOT;
@@ -126,9 +133,9 @@ int tc_egress(struct __sk_buff *skb)
         return TC_ACT_OK;
     }
 
-    if (h_proto == ETH_P_IPV6)
+    if (proto == ETH_P_IPV6)
     {
-        struct ipv6hdr *ip6h = data + sizeof(struct ethhdr);
+        struct ipv6hdr *ip6h = data;
         if ((void *)(ip6h + 1) > data_end)
             return TC_ACT_OK;
 
@@ -138,29 +145,37 @@ int tc_egress(struct __sk_buff *skb)
         key_v6.protocol = ip6h->nexthdr;
 
         unsigned char nexthdr = ip6h->nexthdr;
-        void *l6 = data + sizeof(struct ethhdr) + sizeof(struct ipv6hdr);
+        void *l6 = data + sizeof(struct ipv6hdr);
 
 #pragma unroll
         for (int i = 0; i < 4; i++)
         {
-            if (nexthdr == IPPROTO_TCP) {
-                if (!parse_transport(l6, data_end, NULL, &key_v6, 1)) return TC_ACT_OK;
+            if (nexthdr == IPPROTO_TCP)
+            {
+                if (!parse_transport(l6, data_end, NULL, &key_v6, 1))
+                    return TC_ACT_OK;
                 break;
             }
-            if (nexthdr == IPPROTO_UDP) {
-                if (!parse_udp(l6, data_end, NULL, &key_v6, 1)) return TC_ACT_OK;
+            if (nexthdr == IPPROTO_UDP)
+            {
+                if (!parse_udp(l6, data_end, NULL, &key_v6, 1))
+                    return TC_ACT_OK;
                 break;
             }
             if (nexthdr == IPPROTO_HOPOPTS || nexthdr == IPPROTO_ROUTING ||
                 nexthdr == IPPROTO_DSTOPTS || nexthdr == IPPROTO_FRAGMENT ||
-                nexthdr == IPPROTO_AH) {
+                nexthdr == IPPROTO_AH)
+            {
                 struct ipv6_opt_hdr *opthdr = l6;
-                if ((void *)(opthdr + 1) > data_end) return TC_ACT_OK;
+                if ((void *)(opthdr + 1) > data_end)
+                    return TC_ACT_OK;
                 nexthdr = opthdr->nexthdr;
 
-                if (nexthdr == IPPROTO_FRAGMENT) {
+                if (nexthdr == IPPROTO_FRAGMENT)
+                {
                     struct frag_hdr *fraghdr = l6;
-                    if ((void *)(fraghdr + 1) > data_end) return TC_ACT_OK;
+                    if ((void *)(fraghdr + 1) > data_end)
+                        return TC_ACT_OK;
                     l6 = (void *)(fraghdr + 1);
                     key_v6.protocol = fraghdr->nexthdr;
                     return TC_ACT_OK;
@@ -176,7 +191,8 @@ int tc_egress(struct __sk_buff *skb)
             return TC_ACT_OK;
 
         struct flow_info *info = bpf_map_lookup_elem(&flow_info_map_v6, &key_v6);
-        if (!info) {
+        if (!info)
+        {
             bpf_printk("TC: flow_v6 NOT FOUND proto=%d src_port=%d dst_port=%d",
                        key_v6.protocol, key_v6.src_port, key_v6.dst_port);
             return TC_ACT_SHOT;

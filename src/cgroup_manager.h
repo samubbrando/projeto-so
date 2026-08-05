@@ -76,7 +76,6 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
         struct flow_info fi = {
             .action = rule->action,
             .egress_strategy = rule->egress_strategy,
-            .ingress_strategy = rule->ingress_strategy,
         };
 
         struct proc_key pk = {0};
@@ -94,7 +93,6 @@ static void setup_cgroup_rules(struct cgroup_skb_bpf *skel,
         struct flow_info fi = {
             .action = rules[i].action,
             .egress_strategy = rules[i].egress_strategy,
-            .ingress_strategy = rules[i].ingress_strategy,
         };
         struct proc_key pk = {.comm = "*"};
         bpf_map__update_elem(skel->maps.proc_rule_map,

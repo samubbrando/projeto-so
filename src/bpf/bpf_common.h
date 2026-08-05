@@ -8,8 +8,13 @@
 
 static __always_inline void refill_bucket(struct rate_bucket *bucket)
 {
+    if (bucket->rate_bps == 0)
+        return;
     __u64 now = bpf_ktime_get_ns();
     __u64 elapsed = now - bucket->last_ns;
+    __u64 max_elapsed = ~0ULL / bucket->rate_bps;
+    if (elapsed > max_elapsed)
+        elapsed = max_elapsed;
     __u64 added = (bucket->rate_bps * elapsed) / 8000000000ULL;
     bucket->tokens += added;
     if (bucket->tokens > bucket->burst)
