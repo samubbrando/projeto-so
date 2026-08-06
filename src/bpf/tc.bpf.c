@@ -4,8 +4,13 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
+
+// I needed to define the constants because the following include
+// used to cause errors.
+// #include <linux/pkt_cls.h>
+
 #define TC_ACT_OK 0
-#define TC_ACT_SHOT 1
+#define TC_ACT_SHOT 2
 
 #define TC_LOG(fmt, ...) bpf_printk("TC: " fmt, ##__VA_ARGS__)
 
@@ -57,22 +62,27 @@ int tc_egress(struct __sk_buff *skb)
 
     void *data = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
+    struct ethhdr *eth = data;
 
-    unsigned short proto = bpf_ntohs(skb->protocol);
-    if (proto != ETH_P_IP && proto != ETH_P_IPV6)
+    if ((void *)(eth + 1) > data_end)
+        return TC_ACT_OK;
+
+    unsigned short h_proto = bpf_ntohs(eth->h_proto);
+    if (h_proto != ETH_P_IP && h_proto != ETH_P_IPV6)
     {
-        TC_LOG("unsupported ether proto=%u", proto);
+        TC_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
         return TC_ACT_OK;
     }
 
     struct flow_key key = {0};
-    int r = (proto == ETH_P_IP)
-                ? build_ipv4_key(data, data_end, &key, 0)
-                : build_ipv6_key(data, data_end, &key, 0);
+    void *l3 = data + sizeof(struct ethhdr);
+    int r = (h_proto == ETH_P_IP)
+            ? build_ipv4_key(l3, data_end, &key, 0)
+            : build_ipv6_key(l3, data_end, &key, 0);
 
     if (r < 0)
     {
-        TC_LOG("unsupported protocol=%d", key.protocol);
+        TC_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
         return TC_ACT_OK;
     }
     if (r == 0)
@@ -89,7 +99,7 @@ int tc_egress(struct __sk_buff *skb)
     struct flow_policy *pol = bpf_map_lookup_elem(&flow_map, &key);
     if (!pol)
     {
-        TC_LOG("flow NOT FOUND proto=%d src_port=%d dst_port=%d",
+        TC_LOG("flow NOT FOUND h_proto=%d src_port=%d dst_port=%d",
                key.protocol, key.src_port, key.dst_port);
         return TC_ACT_SHOT;
     }
@@ -104,7 +114,7 @@ int tc_egress(struct __sk_buff *skb)
     if (!bucket)
     {
         TC_LOG("no egress bucket");
-        return TC_ACT_OK;
+        return TC_ACT_SHOT;
     }
 
     if (bucket_allow(bucket, skb->len))

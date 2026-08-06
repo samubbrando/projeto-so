@@ -59,7 +59,7 @@ int xdp_ingress(struct xdp_md *ctx)
     unsigned short h_proto = bpf_ntohs(eth->h_proto);
     if (h_proto != ETH_P_IP && h_proto != ETH_P_IPV6)
     {
-        XDP_LOG("unsupported ether proto=%u", h_proto);
+        XDP_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
         return XDP_PASS;
     }
 
@@ -71,7 +71,7 @@ int xdp_ingress(struct xdp_md *ctx)
 
     if (r < 0)
     {
-        XDP_LOG("unsupported protocol=%d", key.protocol);
+        XDP_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
         return XDP_PASS;
     }
     if (r == 0)
@@ -103,7 +103,7 @@ int xdp_ingress(struct xdp_md *ctx)
     if (!bucket)
     {
         XDP_LOG("no ingress bucket");
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     if (bucket_allow(bucket, size))
