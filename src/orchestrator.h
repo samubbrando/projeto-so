@@ -9,7 +9,7 @@
 #include "xdp.h"
 #include "tc.h"
 
-#define BURST_SECONDS 1
+#define BURST_SECONDS 0.1
 
 static struct flow_key prev_fk[MAX_SOCKETS], cur_fk[MAX_SOCKETS];
 static int n_prev_fk, n_cur_fk;
@@ -125,7 +125,7 @@ void orchestrator_apply(
 
         if (n_cur_fk < MAX_SOCKETS)
             cur_fk[n_cur_fk++] = fk;
-
+        
         struct flow_policy egress = {
             .action = rule->action,
             .strategy = rule->egress_strategy,
@@ -145,8 +145,11 @@ void orchestrator_apply(
         if (rule->action == ALLOW)
         {
             unsigned long long burst = rate_bps / 8;
+            burst = burst / (1 / BURST_SECONDS);
+            
             if (sockets[i].family == AF_INET6)
                 burst /= 2;
+
             update_rate_bucket(tc->maps.egress_buckets, &fk, sizeof(fk),
                                rate_bps, burst, now_ns);
             update_rate_bucket(xdp->maps.ingress_buckets, &fk, sizeof(fk),

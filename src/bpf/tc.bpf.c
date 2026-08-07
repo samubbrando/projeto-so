@@ -70,7 +70,7 @@ int tc_egress(struct __sk_buff *skb)
     unsigned short h_proto = bpf_ntohs(eth->h_proto);
     if (h_proto != ETH_P_IP && h_proto != ETH_P_IPV6)
     {
-        TC_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
+        // TC_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
         return TC_ACT_OK;
     }
 
@@ -82,7 +82,7 @@ int tc_egress(struct __sk_buff *skb)
 
     if (r < 0)
     {
-        TC_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
+        // TC_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
         return TC_ACT_OK;
     }
     if (r == 0)

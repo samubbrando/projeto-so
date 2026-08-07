@@ -300,7 +300,8 @@ int main(int argc, char *argv[])
     int n_rules;
 
     while (1)
-    {
+    {   
+        uint64_t start = now_ns();
         printf("\n=== Por processo ===\n");
 
         socket_proccess_t *sockets = malloc(sizeof(socket_proccess_t) * MAX_SOCKETS);
@@ -372,8 +373,11 @@ int main(int argc, char *argv[])
         printf("=== Capacidade estimada ===\n");
         printf("Capacity: %llu bps  (test=%llu  sysfs=%llu)\n",
                speed_estimator_capacity(&est), est.active_test_bps, est.sysfs_speed_bps);
-
-        sleep(1);
+        
+        uint64_t end = now_ns();
+        uint64_t diff = end - start;
+        if (diff < BURST_SECONDS) 
+            sleep(diff);
     }
 
     speed_estimator_destroy(&est);

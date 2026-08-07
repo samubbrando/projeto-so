@@ -43,7 +43,7 @@ int xdp_ingress(struct xdp_md *ctx)
     struct traffic_stats *stats = bpf_map_lookup_elem(&ingress_map, &stats_key);
     if (!stats)
     {
-        XDP_LOG("missing ingress stats");
+        // XDP_LOG("missing ingress stats");
         return XDP_PASS;
     }
     __sync_fetch_and_add(&stats->packets, 1);
@@ -52,14 +52,14 @@ int xdp_ingress(struct xdp_md *ctx)
     struct ethhdr *eth = data;
     if ((void *)(eth + 1) > data_end)
     {
-        XDP_LOG("ethernet header truncated");
+        // XDP_LOG("ethernet header truncated");
         return XDP_PASS;
     }
 
     unsigned short h_proto = bpf_ntohs(eth->h_proto);
     if (h_proto != ETH_P_IP && h_proto != ETH_P_IPV6)
     {
-        XDP_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
+        // XDP_LOG("unsupported ether h_proto=%u, scheduler only supports %u %u", h_proto, ETH_P_IP, ETH_P_IPV6);
         return XDP_PASS;
     }
 
@@ -71,50 +71,50 @@ int xdp_ingress(struct xdp_md *ctx)
 
     if (r < 0)
     {
-        XDP_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
+        // XDP_LOG("couldn't build a rate_key, unsupported protocol=%d", key.protocol);
         return XDP_PASS;
     }
     if (r == 0)
     {
-        XDP_LOG("parse failure protocol=%d", key.protocol);
+        // XDP_LOG("parse failure protocol=%d", key.protocol);
         return XDP_PASS;
     }
     if (r == 2)
     {
-        XDP_LOG("IPv6 fragment packet");
+        // XDP_LOG("IPv6 fragment packet");
         return XDP_PASS;
     }
 
     struct flow_policy *pol = bpf_map_lookup_elem(&flow_map, &key);
     if (!pol)
     {
-        XDP_LOG("blocklist miss proto=%d src_port=%d dst_port=%d",
-                key.protocol, key.src_port, key.dst_port);
+        // XDP_LOG("blocklist miss proto=%d src_port=%d dst_port=%d",
+        //         key.protocol, key.src_port, key.dst_port);
         return XDP_DROP;
     }
 
     if (pol->action == BLOCK)
     {
-        XDP_LOG("block action");
+        // XDP_LOG("block action");
         return XDP_DROP;
     }
 
     struct rate_bucket *bucket = bpf_map_lookup_elem(&ingress_buckets, &key);
     if (!bucket)
     {
-        XDP_LOG("no ingress bucket");
+        // XDP_LOG("no ingress bucket");
         return XDP_DROP;
     }
 
     if (bucket_allow(bucket, size))
     {
-        XDP_LOG("bucket pass size=%u", size);
+        // XDP_LOG("bucket pass size=%u", size);
         return XDP_PASS;
     }
 
     if (pol->strategy == STRATEGY_DROP)
     {
-        XDP_LOG("ingress strategy DROP");
+        // XDP_LOG("ingress strategy DROP");
         return XDP_DROP;
     }
 
@@ -125,11 +125,11 @@ int xdp_ingress(struct xdp_md *ctx)
                          : ipv6_mark_ecn((struct ipv6hdr *)l3);
         if (!marked)
         {
-            XDP_LOG("ECN not supported family=%d", key.family);
+            // XDP_LOG("ECN not supported family=%d", key.family);
             return XDP_DROP;
         }
     }
 
-    XDP_LOG("pass");
+    // XDP_LOG("pass");
     return XDP_PASS;
 }

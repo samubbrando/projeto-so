@@ -180,6 +180,10 @@ unsigned long long speed_estimator_capacity(struct speed_estimator *est)
         qsort(tmp, est->n_samples, sizeof(unsigned long long), comp_bps);
         return tmp[est->n_samples / 2];
     }
+    else if (est->n_samples > 0)
+    {
+        return est->samples[est->n_samples - 1];
+    }
 
     if (est->sysfs_speed_bps > 0)
         return est->sysfs_speed_bps;
