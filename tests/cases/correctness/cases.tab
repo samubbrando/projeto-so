@@ -1,0 +1,5 @@
+# case            expected_egress  expected_ingress   (blocked | flow)
+allow-both      flow             flow
+block-both      blocked          blocked
+block-egress    blocked          flow
+block-ingress   flow             blocked

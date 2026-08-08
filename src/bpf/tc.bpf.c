@@ -56,7 +56,7 @@ int tc_egress(struct __sk_buff *skb)
 
     if (skb->mark == PROBE_FWMARK)
     {
-        TC_LOG("probe mark");
+        // TC_LOG("probe mark");
         return TC_ACT_OK;
     }
 
@@ -65,6 +65,7 @@ int tc_egress(struct __sk_buff *skb)
     struct ethhdr *eth = data;
 
     if ((void *)(eth + 1) > data_end)
+        // TC_LOG("packet can't be a ethernet header.");
         return TC_ACT_OK;
 
     unsigned short h_proto = bpf_ntohs(eth->h_proto);
@@ -87,48 +88,48 @@ int tc_egress(struct __sk_buff *skb)
     }
     if (r == 0)
     {
-        TC_LOG("parse failure protocol=%d", key.protocol);
+        // TC_LOG("parse failure protocol=%d", key.protocol);
         return TC_ACT_OK;
     }
     if (r == 2)
     {
-        TC_LOG("IPv6 fragment packet");
+        // TC_LOG("IPv6 fragment packet");
         return TC_ACT_OK;
     }
 
     struct flow_policy *pol = bpf_map_lookup_elem(&flow_map, &key);
     if (!pol)
     {
-        TC_LOG("flow NOT FOUND h_proto=%d src_port=%d dst_port=%d",
-               key.protocol, key.src_port, key.dst_port);
+        // TC_LOG("flow NOT FOUND h_proto=%d src_port=%d dst_port=%d",
+        //        key.protocol, key.src_port, key.dst_port);
         return TC_ACT_SHOT;
     }
 
     if (pol->action == BLOCK)
     {
-        TC_LOG("flow BLOCK action");
+        // TC_LOG("flow BLOCK action");
         return TC_ACT_SHOT;
     }
 
     struct rate_bucket *bucket = bpf_map_lookup_elem(&egress_buckets, &key);
     if (!bucket)
     {
-        TC_LOG("no egress bucket");
+        // TC_LOG("no egress bucket");
         return TC_ACT_SHOT;
     }
 
     if (bucket_allow(bucket, skb->len))
     {
-        TC_LOG("token bucket pass size=%u", skb->len);
+        // TC_LOG("token bucket pass size=%u", skb->len);
         return TC_ACT_OK;
     }
 
     if (pol->strategy == STRATEGY_DROP)
     {
-        TC_LOG("egress strategy DROP");
+        // TC_LOG("egress strategy DROP");
         return TC_ACT_SHOT;
     }
 
-    TC_LOG("egress pass");
+    // TC_LOG("egress pass");
     return TC_ACT_OK;
 }

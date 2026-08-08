@@ -375,7 +375,7 @@ int main(int argc, char *argv[])
                speed_estimator_capacity(&est), est.active_test_bps, est.sysfs_speed_bps);
         
         uint64_t end = now_ns();
-        uint64_t diff = end - start;
+        double diff = (double) (end - start) * 1e-9;
         if (diff < BURST_SECONDS) 
             sleep(diff);
     }

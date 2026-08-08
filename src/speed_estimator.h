@@ -24,6 +24,7 @@
 
 struct speed_estimator
 {
+    unsigned long long override_bps;
     unsigned long long current_speed_bps;
     unsigned long long active_test_bps;
     unsigned long long sysfs_speed_bps;
@@ -64,6 +65,14 @@ void speed_estimator_init(struct speed_estimator *est, const char *iface)
 
     est->interval_s = EST_DEFAULT_INTERVAL_S;
 
+    const char *override = getenv("CAPACITY_BPS");
+    if (override && override[0])
+    {
+        est->override_bps = strtoull(override, NULL, 10);
+        fprintf(stderr, "speed_estimator: capacity overridden by CAPACITY_BPS=%llu bps\n",
+                est->override_bps);
+    }
+
     char path[256];
     snprintf(path, sizeof(path), "/sys/class/net/%s/speed", iface);
     FILE *fp = fopen(path, "r");
@@ -99,6 +108,9 @@ static unsigned long long read_tx_bytes(const char *iface)
 void speed_estimator_update(struct speed_estimator *est,
                             uint64_t now_ns)
 {
+    if (est->override_bps > 0)
+        return;
+
     if (est->prev_time_ns == 0)
     {
         est->prev_time_ns = now_ns;
@@ -171,6 +183,9 @@ static int comp_bps(const void *a, const void *b)
 
 unsigned long long speed_estimator_capacity(struct speed_estimator *est)
 {
+    if (est->override_bps > 0)
+        return est->override_bps;
+
     int minimum = 3;
 
     if (est->n_samples >= minimum)

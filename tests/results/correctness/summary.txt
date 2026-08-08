@@ -1,0 +1,4 @@
+case            expected_egress    expected_ingress   result
+allow-both      flow               flow               PASS
+block-both      blocked            blocked            PASS
+block-egress    blocked            flow               PASS

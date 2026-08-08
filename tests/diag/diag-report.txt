@@ -1,0 +1,200 @@
+flow-scheduler diagnostic report (evidence from run logs)
+generated: 2026-08-08T04:43:34.127107+00:00
+source:    /home/samuel/programas/flow-weaver-provisory/tests/results
+
+## CORRECTNESS
+summary:
+case            expected_egress    expected_ingress   result
+allow-both      flow               flow               PASS
+block-both      blocked            blocked            PASS
+block-egress    blocked            flow               PASS
+
+  --- correctness/allow-both
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 8G bps  test=8G  sysfs=10G
+  per-process (last of 1183): PID=420665 comm=scheduler TX=0 B/s RX=0 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 2G
+    EGRESS_BYTES  = 5G
+    INGRESS_BPS   = 2G
+    INGRESS_BYTES = 5G
+    OFFERED_BPS   = 3G
+    OFFERED_BYTES = 5G
+    CAP_BPS       = 8G
+
+  --- correctness/block-both
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 10G bps  test=9G  sysfs=10G
+  per-process (last of 1512): PID=421031 comm=scheduler TX=0 B/s RX=0 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 0
+    EGRESS_BYTES  = 0
+    INGRESS_BPS   = 0
+    INGRESS_BYTES = 0
+    OFFERED_BPS   = 5G
+    OFFERED_BYTES = 10G
+    CAP_BPS       = 10G
+
+  --- correctness/block-egress
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 9G bps  test=5G  sysfs=10G
+  per-process (last of 1476): PID=421380 comm=scheduler TX=0 B/s RX=0 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 0
+    EGRESS_BYTES  = 0
+    INGRESS_BPS   = 1G
+    INGRESS_BYTES = 3G
+    OFFERED_BPS   = 4G
+    OFFERED_BYTES = 9G
+    CAP_BPS       = 9G
+
+## RATE-LIMIT
+summary:
+pct  achieved     offered      probe_cap    ceiling      target       accuracy_pct
+10   278427520    3465629440   2866107626   2866107626   286610762    97.1
+25   696692266    5375220480   2866107626   2866107626   716526906    97.2
+50   981498560    1088606400   2866107626   2866107626   1433053813   68.5
+75   1969273600   3403172267   2866107626   2866107626   2149580719   91.6
+90   2412084266   2912574187   2866107626   2866107626   2579496863   93.5
+
+  --- rate_limit/baseline
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 13G bps  test=14G  sysfs=10G
+  per-process (last of 1404): PID=421753 comm=scheduler TX=0 B/s RX=0 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 2G
+    EGRESS_BYTES  = 5G
+    INGRESS_BPS   = 268M
+    INGRESS_BYTES = 503M
+    OFFERED_BPS   = 4G
+    OFFERED_BYTES = 8G
+    CAP_BPS       = 13G
+
+  --- rate_limit/pct-10
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings (literal, 1):
+    [WARN] 0/1 UDP sockets matched
+  capacity (last): 2G bps  test=0  sysfs=10G
+  override: speed_estimator: capacity overridden by CAPACITY_BPS=2866107626 bps
+  per-process (last of 681): PID=422164 comm=tgt TX=709753503 B/s RX=1618125428 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 261M
+    EGRESS_BYTES  = 522M
+    INGRESS_BPS   = 278M
+    INGRESS_BYTES = 521M
+    OFFERED_BPS   = 3G
+    OFFERED_BYTES = 6G
+    CAP_BPS       = 2G
+
+  --- rate_limit/pct-25
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 2G bps  test=0  sysfs=10G
+  override: speed_estimator: capacity overridden by CAPACITY_BPS=2866107626 bps
+  per-process (last of 512): PID=422536 comm=tgt TX=653659761 B/s RX=4061313163 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 653M
+    EGRESS_BYTES  = 1G
+    INGRESS_BPS   = 698M
+    INGRESS_BYTES = 1G
+    OFFERED_BPS   = 5G
+    OFFERED_BYTES = 10G
+    CAP_BPS       = 2G
+
+  --- rate_limit/pct-50
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings: none
+  capacity (last): 2G bps  test=0  sysfs=10G
+  override: speed_estimator: capacity overridden by CAPACITY_BPS=2866107626 bps
+  per-process (last of 776): PID=422936 comm=tgt TX=118908540 B/s RX=8141773060 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 920M
+    EGRESS_BYTES  = 1G
+    INGRESS_BPS   = 1G
+    INGRESS_BYTES = 2G
+    OFFERED_BPS   = 1G
+    OFFERED_BYTES = 2G
+    CAP_BPS       = 2G
+
+  --- rate_limit/pct-75
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings (literal, 1):
+    PID=423384(tgt)  TX=44343[WARN] 0/1 UDP sockets matched
+  capacity (last): 2G bps  test=0  sysfs=10G
+  override: speed_estimator: capacity overridden by CAPACITY_BPS=2866107626 bps
+  per-process (last of 533): PID=423384 comm=tgt TX=442070273 B/s RX=12207278699 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 1G
+    EGRESS_BYTES  = 3G
+    INGRESS_BPS   = 1G
+    INGRESS_BYTES = 3G
+    OFFERED_BPS   = 3G
+    OFFERED_BYTES = 6G
+    CAP_BPS       = 2G
+
+  --- rate_limit/pct-90
+  attachments:
+    RTT        loaded / attached
+    XDP        loaded / attached
+    TC         loaded / attached
+    cgroup_skb loaded / attached
+  failures: none
+  warnings (literal, 1):
+    PID=423727(tgt)  TX=351212154 B/s  R[WARN] 0/1 UDP sockets matched
+  capacity (last): 2G bps  test=0  sysfs=10G
+  override: speed_estimator: capacity overridden by CAPACITY_BPS=2866107626 bps
+  per-process (last of 500): PID=423727 comm=tgt TX=368822582 B/s RX=14645909147 B/s sockets=1
+  stats:
+    EGRESS_BPS    = 2G
+    EGRESS_BYTES  = 4G
+    INGRESS_BPS   = 2G
+    INGRESS_BYTES = 4G
+    OFFERED_BPS   = 2G
+    OFFERED_BYTES = 5G
+    CAP_BPS       = 2G
+
+end of report. all values above are taken verbatim from the run logs.
